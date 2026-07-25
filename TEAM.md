@@ -6,6 +6,26 @@ Our engineering teams work together to design, build, evaluate, and deploy an AI
 
 ---
 
+
+# 👨‍💼 Project Lead
+
+<p align="center">
+  <a href="https://github.com/hatamzadeh86">
+    <img src="https://github.com/hatamzadeh86.png" width="140px;" alt="Amir Mohammad Hatamzadeh"/><br>
+    <strong>Amir Mohammad Hatamzadeh</strong>
+  </a>
+</p>
+
+<p align="center">
+<b>Project Lead & Technical Supervisor</b>
+</p>
+
+<p align="center">
+Responsible for defining the project vision, leading the engineering teams, making technical decisions, coordinating development activities, and ensuring the successful delivery of the Safety Monitoring System.
+</p>
+
+---
+
 ## 📦 Dataset Team
 
 > Responsible for data collection, annotation, preprocessing, and dataset management.
@@ -133,6 +153,44 @@ Our engineering teams work together to design, build, evaluate, and deploy an AI
 </p>
 
 ---
+
+
+## 🛠️ Repository Maintainers
+
+The following maintainers are responsible for reviewing pull requests, managing issues, merging contributions, and maintaining the overall health of this repository.
+
+<table align="center">
+<tr>
+<td align="center" width="220">
+
+<a href="https://github.com/Eyna-A">
+<img src="https://github.com/Eyna-A.png" width="120px;" alt="Eyna-A"/><br />
+<b>Eyna-A</b>
+</a>
+
+</td>
+
+<td align="center" width="220">
+
+<a href="https://github.com/HosseinHeydari2004">
+<img src="https://github.com/HosseinHeydari2004.png" width="120px;" alt="Hossein Heydari"/><br />
+<b>Hossein Heydari</b>
+</a>
+
+</td>
+</tr>
+</table>
+
+### Responsibilities
+
+* Review Pull Requests
+* Merge approved Pull Requests
+* Manage Issues
+* Organize Labels & Milestones
+* Coordinate contributions across all teams
+* Maintain repository structure and code quality
+
+
 
 ## 🤝 Collaboration
 
