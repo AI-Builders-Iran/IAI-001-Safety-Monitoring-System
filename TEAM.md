@@ -65,6 +65,7 @@ Responsible for defining the project vision, leading the engineering teams, maki
 <p>
 <a href="https://github.com/hatamzadeh86"><img src="https://github.com/hatamzadeh86.png" width="70" title="Amir Mohammad Hatamzadeh"/></a>
 <a href="https://github.com/AhmadJeddi"><img src="https://github.com/AhmadJeddi.png" width="70" title="Ahmad Jeddi"/></a>
+<a href="https://github.com/negin20000"><img src="https://github.com/negin20000.png" width="70" title="negin"/></a>
 </p>
 
 ---
@@ -97,9 +98,9 @@ Responsible for defining the project vision, leading the engineering teams, maki
 ### Team Lead
 
 <p align="center">
-<a href="https://github.com/negin20000">
-<img src="https://github.com/negin20000.png" width="120"/><br>
-<b>Negin</b>
+<a href="https://github.com/hatamzadeh86">
+<img src="https://github.com/hatamzadeh86.png" width="120"/><br>
+<b>Amir mohammad Hatamzadeh</b>
 </a>
 </p>
 
@@ -107,6 +108,7 @@ Responsible for defining the project vision, leading the engineering teams, maki
 
 <p>
 <a href="https://github.com/Mhajirezaei"><img src="https://github.com/Mhajirezaei.png" width="70" title="Mohammad Hajirezaei"/></a>
+<a href="https://github.com/Mohii722"><img src="https://github.com/Mohii722.png" width="70" title=Mohadese Mohamadiha"/></a>
 </p>
 
 ---
