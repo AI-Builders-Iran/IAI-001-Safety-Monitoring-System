@@ -1,122 +1,160 @@
-# 🦺 Safety Monitoring System – Teams
+# 🦺 Safety Monitoring System – Engineering Teams
 
-Meet the teams behind the **Safety Monitoring System** project.
+Welcome to the **Safety Monitoring System** project.
+
+Our engineering teams work together to design, build, evaluate, and deploy an AI-powered safety monitoring platform. Each team owns a specific domain while collaborating closely throughout the development lifecycle.
 
 ---
 
-# 📦 Dataset Team
+## 📦 Dataset Team
 
-## Team Lead
+> Responsible for data collection, annotation, preprocessing, and dataset management.
+
+### Team Lead
 
 <p align="center">
   <a href="https://github.com/hatamzadeh86">
-    <img src="https://github.com/hatamzadeh86.png" width="120px;" alt="Amir Mohammad Hatamzadeh"/><br>
-    <strong>Amir Mohammad Hatamzadeh</strong>
+    <img src="https://github.com/hatamzadeh86.png" width="120" style="border-radius:50%;" alt="Amir Mohammad Hatamzadeh"/><br>
+    <b>Amir Mohammad Hatamzadeh</b>
   </a>
 </p>
 
-### Members
+### Team Members
 
-|                             Avatar                             | Name                                                    |
-| :------------------------------------------------------------: | ------------------------------------------------------- |
-| <img src="https://github.com/Alireza-Taherkho.png" width="70"> | [Alireza Taherkho](https://github.com/Alireza-Taherkho) |
-
----
-
-# 👁️ Computer Vision Team
-
-## Team Lead
-
-<p align="center">
-  <a href="https://github.com/Seyede-Reyhane-Khorashadizade">
-    <img src="https://github.com/Seyede-Reyhane-Khorashadizade.png" width="120px;"><br>
-    <strong>Seyede Reyhane Khorashadizade</strong>
-  </a>
+<p>
+<a href="https://github.com/Alireza-Taherkho"><img src="https://github.com/Alireza-Taherkho.png" width="70" title="Alireza Taherkho"/></a>
 </p>
 
-### Members
-
-|                           Avatar                           | Name                                                        |
-| :--------------------------------------------------------: | ----------------------------------------------------------- |
-| <img src="https://github.com/hatamzadeh86.png" width="70"> | [Amir Mohammad Hatamzadeh](https://github.com/hatamzadeh86) |
-|  <img src="https://github.com/AhmadJeddi.png" width="70">  | [Ahmad Jeddi](https://github.com/AhmadJeddi)                |
-
 ---
 
-# 📊 Evaluation Team
+## 👁️ Computer Vision Team
 
-## Team Lead
+> Develops and optimizes AI models for detecting safety violations and PPE compliance.
+
+### Team Lead
 
 <p align="center">
-  <a href="https://github.com/Mhajirezaei">
-    <img src="https://github.com/Mhajirezaei.png" width="120px;"><br>
-    <strong>Mohammad Hajirezaei</strong>
-  </a>
+<a href="https://github.com/Seyede-Reyhane-Khorashadizade">
+<img src="https://github.com/Seyede-Reyhane-Khorashadizade.png" width="120"/><br>
+<b>Seyede Reyhane Khorashadizade</b>
+</a>
 </p>
 
-### Members
+### Team Members
 
-|                        Avatar                        | Name                                |
-| :--------------------------------------------------: | ----------------------------------- |
-| <img src="https://github.com/AMPoet.png" width="70"> | [AMPoet](https://github.com/AMPoet) |
+<p>
+<a href="https://github.com/hatamzadeh86"><img src="https://github.com/hatamzadeh86.png" width="70" title="Amir Mohammad Hatamzadeh"/></a>
+<a href="https://github.com/AhmadJeddi"><img src="https://github.com/AhmadJeddi.png" width="70" title="Ahmad Jeddi"/></a>
+</p>
 
 ---
 
-# ⚙️ Rule Engine Team
+## 📊 Evaluation Team
 
-## Team Lead
+> Benchmarks models, validates performance, and ensures reliable evaluation metrics.
+
+### Team Lead
 
 <p align="center">
-  <a href="https://github.com/negin20000">
-    <img src="https://github.com/negin20000.png" width="120px;"><br>
-    <strong>Negin</strong>
-  </a>
+<a href="https://github.com/Mhajirezaei">
+<img src="https://github.com/Mhajirezaei.png" width="120"/><br>
+<b>Mohammad Hajirezaei</b>
+</a>
 </p>
 
-### Members
+### Team Members
 
-|                           Avatar                          | Name                                                  |
-| :-------------------------------------------------------: | ----------------------------------------------------- |
-| <img src="https://github.com/Mhajirezaei.png" width="70"> | [Mohammad Hajirezaei](https://github.com/Mhajirezaei) |
-
----
-
-# 🤖 LLM Team
-
-## Team Lead
-
-> **Beeehrraaad** *(GitHub profile will be added soon.)*
-
-### Members
-
-|                              Avatar                              | Name                                                     |
-| :--------------------------------------------------------------: | -------------------------------------------------------- |
-| <img src="https://github.com/HosseinHeydari2004.png" width="70"> | [Hossein Heydari](https://github.com/HosseinHeydari2004) |
-|   <img src="https://github.com/SabzkariFatemeh.png" width="70">  | [Fatemeh Sabzkari](https://github.com/SabzkariFatemeh)   |
-|     <img src="https://github.com/Erfanjenab.png" width="70">     | [Erfan Jenab](https://github.com/Erfanjenab)             |
+<p>
+<a href="https://github.com/AMPoet"><img src="https://github.com/AMPoet.png" width="70" title="AMPoet"/></a>
+</p>
 
 ---
 
-# 🖥️ Backend & Dashboard Team
+## ⚙️ Rule Engine Team
 
-## Team Lead
+> Designs decision logic and converts AI predictions into actionable system events.
+
+### Team Lead
 
 <p align="center">
-  <a href="https://github.com/farshadz1997">
-    <img src="https://github.com/farshadz1997.png" width="120px;"><br>
-    <strong>Farshad</strong>
-  </a>
+<a href="https://github.com/negin20000">
+<img src="https://github.com/negin20000.png" width="120"/><br>
+<b>Negin</b>
+</a>
 </p>
 
-### Members
+### Team Members
 
-|                              Avatar                              | Name                                                     |
-| :--------------------------------------------------------------: | -------------------------------------------------------- |
-|     <img src="https://github.com/ariaaanaaa.png" width="70">     | [Ariana](https://github.com/ariaaanaaa)                  |
-| <img src="https://github.com/HosseinHeydari2004.png" width="70"> | [Hossein Heydari](https://github.com/HosseinHeydari2004) |
+<p>
+<a href="https://github.com/Mhajirezaei"><img src="https://github.com/Mhajirezaei.png" width="70" title="Mohammad Hajirezaei"/></a>
+</p>
 
 ---
 
+## 🤖 LLM Team
+
+> Builds the intelligent assistant, RAG pipeline, and AI-powered reporting system.
+
+### Team Lead
+
 <p align="center">
-Built with ❤️ by the Safety Monitoring System Team
+<b>Beeehrraaad</b><br>
+<sub>GitHub profile coming soon</sub>
 </p>
+
+### Team Members
+
+<p>
+<a href="https://github.com/HosseinHeydari2004"><img src="https://github.com/HosseinHeydari2004.png" width="70" title="Hossein Heydari"/></a>
+<a href="https://github.com/SabzkariFatemeh"><img src="https://github.com/SabzkariFatemeh.png" width="70" title="Fatemeh Sabzkari"/></a>
+<a href="https://github.com/Erfanjenab"><img src="https://github.com/Erfanjenab.png" width="70" title="Erfan Jenab"/></a>
+</p>
+
+---
+
+## 🖥️ Backend & Dashboard Team
+
+> Develops APIs, databases, dashboards, and integrates all project components.
+
+### Team Lead
+
+<p align="center">
+<a href="https://github.com/farshadz1997">
+<img src="https://github.com/farshadz1997.png" width="120"/><br>
+<b>Farshad</b>
+</a>
+</p>
+
+### Team Members
+
+<p>
+<a href="https://github.com/ariaaanaaa"><img src="https://github.com/ariaaanaaa.png" width="70" title="Ariana"/></a>
+<a href="https://github.com/HosseinHeydari2004"><img src="https://github.com/HosseinHeydari2004.png" width="70" title="Hossein Heydari"/></a>
+</p>
+
+---
+
+## 🤝 Collaboration
+
+```text
+Dataset
+    │
+    ▼
+Computer Vision
+    │
+    ▼
+Evaluation
+    │
+    ▼
+Rule Engine
+    │
+    ├────────► Backend & Dashboard
+    │
+    ▼
+LLM
+    │
+    ▼
+Safety Monitoring System
+```
+
+Every team contributes a critical component to the project. Through continuous collaboration, code reviews, and integration, we build a reliable, scalable, and production-ready AI-powered Safety Monitoring System.
