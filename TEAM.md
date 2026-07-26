@@ -6,24 +6,43 @@ Our engineering teams work together to design, build, evaluate, and deploy an AI
 
 ---
 
+# 👨‍💼 Project Leadership
 
-# 👨‍💼 Project Lead
+<table align="center">
+<tr>
+
+<td align="center" width="260">
+
+<a href="https://github.com/hatamzadeh86">
+<img src="https://github.com/hatamzadeh86.png" width="140px;" alt="Amir Mohammad Hatamzadeh"/><br>
+<strong>Amir Mohammad Hatamzadeh</strong>
+</a>
+
+<br>
+
+**Project Lead & Technical Supervisor**
+
+</td>
+
+<td align="center" width="260">
+
+<a href="https://github.com/HosseinHeydari2004">
+<img src="https://github.com/HosseinHeydari2004.png" width="140px;" alt="Hossein Heydari"/><br>
+<strong>Hossein Heydari</strong>
+</a>
+
+<br>
+
+**Technical Coordinator, GitHub Organization Administrator & Project Manager**
+
+</td>
+
+</tr>
+</table>
 
 <p align="center">
-  <a href="https://github.com/hatamzadeh86">
-    <img src="https://github.com/hatamzadeh86.png" width="140px;" alt="Amir Mohammad Hatamzadeh"/><br>
-    <strong>Amir Mohammad Hatamzadeh</strong>
-  </a>
+The project leadership is responsible for defining the technical vision, coordinating engineering teams, managing the GitHub organization and repositories, supervising development activities, and ensuring the successful delivery of the Safety Monitoring System.
 </p>
-
-<p align="center">
-<b>Project Lead & Technical Supervisor</b>
-</p>
-
-<p align="center">
-Responsible for defining the project vision, leading the engineering teams, making technical decisions, coordinating development activities, and ensuring the successful delivery of the Safety Monitoring System.
-</p>
-
 ---
 
 ## 📦 Dataset Team
