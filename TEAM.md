@@ -43,6 +43,8 @@ Our engineering teams work together to design, build, evaluate, and deploy an AI
 <p align="center">
 The project leadership is responsible for defining the technical vision, coordinating engineering teams, managing the GitHub organization and repositories, supervising development activities, and ensuring the successful delivery of the Safety Monitoring System.
 </p>
+
+
 ---
 
 ## 📦 Dataset Team
