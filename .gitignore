@@ -2,3 +2,4 @@ venv
 *.pt
 *.keras
 *.yaml
+__pycache__
