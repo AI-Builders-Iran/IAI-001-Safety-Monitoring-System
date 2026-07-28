@@ -1,1 +1,4 @@
-chore: update .gitignore and remove ignored files from tracking
+venv
+*.pt
+*.keras
+*.yaml
