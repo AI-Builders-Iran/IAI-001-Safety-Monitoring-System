@@ -3,3 +3,6 @@ venv
 *.keras
 *.yaml
 __pycache__
+.idea/
+LLM/__pycache__/
+LLM/tests/__pycache__/
