@@ -1,4 +1,9 @@
 from LLM.models import RuleEngineData
+from LLM.llm_client import LLMModel, download_model
+from LLM.models import RuleEngineData
+from LLM.prompt import HSEPromptGenerator
+
+# download_model()
 
 data = RuleEngineData(
     time="2026-07-28T10:35:42Z",
@@ -25,4 +30,12 @@ data = RuleEngineData(
     }
 )
 
-print(data.model_dump_json(indent=2))
+model = LLMModel()
+
+prompt_generator = HSEPromptGenerator()
+
+print(
+    model.generate(
+        prompt=prompt_generator.executive_summary(data=data)
+    )
+)
