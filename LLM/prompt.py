@@ -1,4 +1,4 @@
-from models import RuleEngineData
+from LLM.models import RuleEngineData
 
 
 class HSEPromptGenerator:
@@ -147,7 +147,6 @@ class HSEPromptGenerator:
         You are an HSE advisor.
 
         Write a concise executive summary.
-        Maximum length: 200 words.
 
         Highlight:
         - most important findings

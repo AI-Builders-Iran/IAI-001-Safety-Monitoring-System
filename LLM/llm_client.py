@@ -1,3 +1,10 @@
+"""Utilities for downloading and running a local Qwen2.5 causal language model.
+
+This module provides a helper to download a Hugging Face model snapshot to a
+local directory, and a wrapper class (`LLMModel`) that loads the model onto a
+CUDA GPU and generates text using a chat template.
+"""
+
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
@@ -12,7 +19,21 @@ def download_model(
         path: Path = "LLM/model",
         model_name: str = "Qwen/Qwen2.5-1.5B-Instruct"
 ):
-    """Download model from Hugging Face to local directory."""
+    """Download model from Hugging Face to local directory.
+
+    Args:
+        path: Local directory where the model snapshot will be saved.
+            Created if it does not already exist.
+        model_name: Hugging Face repo ID of the model to download.
+
+    Returns:
+        A confirmation message including the model name and the local
+        path where the snapshot was saved.
+
+    Raises:
+        ValueError: If the download fails for any reason (e.g. network
+            error, invalid repo ID, insufficient disk space).
+    """
 
     local_dir = str(path)
     try:
@@ -28,7 +49,34 @@ def download_model(
 
 
 class LLMModel:
-    def __init__(self, model_path: str):
+    """Wrapper around a Hugging Face causal LM for chat-style text generation.
+
+    Loads a tokenizer and model from a local directory onto a CUDA GPU in
+    bfloat16 precision, and exposes a simple `generate`/`__call__` interface
+    that applies the model's chat template to a single user prompt and
+    returns the decoded completion.
+
+    Attributes:
+        model_name: The path the model was loaded from.
+        device: The torch device the model is loaded on (always "cuda";
+            CUDA availability is enforced in `__init__`).
+        tokenizer: The loaded `AutoTokenizer` instance.
+        model: The loaded `AutoModelForCausalLM` instance, in eval mode.
+    """
+
+    def __init__(self, model_path: str = "LLM/model"):
+        """Load the tokenizer and model from a local directory onto the GPU.
+
+        Args:
+            model_path: Path to a local directory containing a Hugging Face
+                model and tokenizer (e.g. as produced by `download_model`).
+
+        Raises:
+            RuntimeError: If no CUDA-capable GPU is available.
+            ValueError: If loading the tokenizer or model fails for any
+                other reason (e.g. missing or corrupted files).
+        """
+
         if not is_available():
             raise RuntimeError(
                 "CUDA is not available.\n"
@@ -50,6 +98,18 @@ class LLMModel:
             raise ValueError(f"Failed to load model from {model_path}: {str(e)}")
 
     def generate(self, prompt: str, max_new_tokens: int = 300) -> str:
+        """Generate a text completion for a single user prompt.
+
+        Wraps the prompt in a one-turn chat message, applies the model's
+        chat template, and greedily decodes a response (no sampling).
+
+        Args:
+            prompt: The user's input text.
+            max_new_tokens: Maximum number of new tokens to generate.
+
+        Returns:
+            The generated response text, with special tokens stripped.
+        """
         messages = [
             {
                 "role": "user",
@@ -81,4 +141,13 @@ class LLMModel:
         )
 
     def __call__(self, prompt: str, max_new_tokens: int = 200):
+        """Shorthand for `generate`.
+
+        Args:
+            prompt: The user's input text.
+            max_new_tokens: Maximum number of new tokens to generate.
+
+        Returns:
+            The generated response text.
+        """
         return self.generate(prompt, max_new_tokens)
