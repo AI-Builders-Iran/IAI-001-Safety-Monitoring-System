@@ -1,673 +1,181 @@
-# 🏭 Pipeline Orchestrator - Complete Usage Guide
+# Work Report — Video Processing & LLM Integration Layer
+## Warehouse Safety Monitoring System
 
-## 📋 Overview
-
-The `pipeline_orchestrator.py` script manages the complete safety monitoring pipeline:
-
-```
-Video File
-    ↓
-Detection Module (YOLO + Tracking)
-    ↓
-tracking_complete.json (intermediate)
-    ↓
-Rule Engine (Safety Rules Analysis)
-    ↓
-alerts_report.json (final output)
-    ↓
-LLM Report Generator or Database (optional)
-```
+**Team:** AI Builders Iran — LLM Sub-team
+**Scope:** Video ingestion, detection/tracking, rule-based safety analysis, and the interface layer feeding the LLM report generator
+**Prepared for:** Team Lead / Project Manager
 
 ---
 
-## 🚀 Quick Start
+## 1. Objective
 
-### Installation
+The LLM sub-team is responsible for turning raw warehouse video footage into a structured, natural-language HSE (Health, Safety, Environment) report. This requires a reliable data pipeline in front of the LLM: video goes in, a clean JSON object describing every safety violation comes out, and that JSON is what the LLM's prompt generator consumes.
 
-1. Place these files in your project directory:
-```
-project/
-├── pipeline_orchestrator.py      ← Main orchestrator
-├── info_detect.py                ← Detection module
-├── rules_engine.py               ← Rule engine module
-├── models/
-│   └── best.pt                   ← YOLO weights
-└── videos/
-    └── warehouse_video.mp4       ← Input video
-```
-
-2. Install dependencies:
-```bash
-pip install opencv-python ultralytics torch torchvision pyyaml
-```
-
-### Basic Usage
-
-```bash
-# Process video with defaults
-python pipeline_orchestrator.py
-
-# Process specific video
-python pipeline_orchestrator.py --video warehouse_video.mp4
-
-# Use webcam (live feed)
-python pipeline_orchestrator.py --video 0
-
-# Custom model path
-python pipeline_orchestrator.py --model models/best.pt
-```
+This report summarizes the design and implementation of that pipeline: a single, self-contained module that a caller can hand a video file to and receive a ready-to-use JSON report from, with no manual steps in between.
 
 ---
 
-## 📊 Command-Line Arguments
+## 2. Pipeline Overview
 
-### Required Arguments
-None - all have defaults in CONFIG dictionary
-
-### Optional Arguments
-
-#### `--video` 
-Input video file path or device ID
-
-**Type:** `str`  
-**Default:** `warehouse_video.mp4`  
-**Values:**
-- Path to MP4/AVI file: `warehouse.mp4`
-- Webcam: `0`
-- Other device: `1`, `2`, etc.
-
-**Examples:**
-```bash
-# From file
---video /path/to/warehouse.mp4
-
-# From webcam
---video 0
-
-# Relative path
---video videos/sample.mp4
+```
+Video file
+    │
+    ▼
+Stage 1 — Detection & Tracking (YOLO)
+    Runs the trained YOLO model frame-by-frame with object tracking enabled.
+    Produces bounding boxes, class labels, track IDs, and PPE (hardhat/vest)
+    association per person.
+    │
+    ▼
+Stage 2 — Rule Engine
+    Applies the team's safety rules (proximity to vehicles/machinery, missing
+    PPE, idle workers, crowding, abnormal speed) to the frame-by-frame data
+    and produces a structured list of alerts with severity levels.
+    │
+    ▼
+Stage 3 — JSON Assembly
+    Combines video metadata, per-object tracking summary, and the alerts
+    report into a single JSON-serializable dictionary.
+    │
+    ▼
+Output JSON → handed directly to the LLM prompt generator (HSEPromptGenerator)
 ```
 
-#### `--model`
-Path to YOLO model weights
-
-**Type:** `str`  
-**Default:** `models/best.pt`  
-**Note:** File must exist; validation will fail otherwise
-
-**Examples:**
-```bash
---model models/best.pt
---model /absolute/path/to/weights.pt
---model yolov8n.pt  # YOLOv8 Nano
-```
-
-#### `--output-tracking`
-Path to output tracking JSON (intermediate file)
-
-**Type:** `str`  
-**Default:** `tracking_complete.json`  
-**Note:** This is the detection module's output; can be reused
-
-**Examples:**
-```bash
---output-tracking tracking_data.json
---output-tracking outputs/tracking_2024_01_15.json
-```
-
-#### `--output-alerts`
-Path to final alerts JSON report
-
-**Type:** `str`  
-**Default:** `alerts_report.json`  
-**Note:** Main output file; typically used by LLM or database
-
-**Examples:**
-```bash
---output-alerts alerts.json
---output-alerts outputs/safety_alerts_2024_01_15.json
-```
-
-#### `--conf`
-Detection confidence threshold
-
-**Type:** `float`  
-**Range:** `0.0` to `1.0`  
-**Default:** `0.3`  
-**Typical Values:**
-- `0.3`: Aggressive (more detections, more false positives)
-- `0.5`: Balanced
-- `0.7`: Conservative (fewer detections, higher accuracy)
-
-**Examples:**
-```bash
---conf 0.3   # Aggressive detection
---conf 0.5   # Balanced
---conf 0.7   # Conservative
-```
-
-#### `--iou`
-Non-Max Suppression IOU threshold
-
-**Type:** `float`  
-**Range:** `0.0` to `1.0`  
-**Default:** `0.45`  
-**Purpose:** Removes overlapping boxes during detection
-
-**Examples:**
-```bash
---iou 0.3    # Aggressive suppression
---iou 0.45   # Standard
---iou 0.6    # Lenient suppression
-```
+All three stages run in a single Python process, in memory, with no intermediate files required. This was an intentional design choice: it removes I/O overhead, avoids file-path coordination issues between stages, and keeps the interface to the LLM layer to a single function call.
 
 ---
 
-## 💡 Usage Examples
+## 3. Components
 
-### Example 1: Basic Processing
-```bash
-python pipeline_orchestrator.py
-```
-**What it does:**
-- Uses default video path
-- Uses default model
-- Generates tracking_complete.json
-- Generates alerts_report.json
+### 3.1 Detection & Tracking (`YOLODetector`)
 
-**Output:**
-```
-======================================================================
-  🏭 Warehouse Safety Monitoring Pipeline
-======================================================================
+- Loads the trained YOLO model once (not per video), so repeated calls in a running service don't pay model-loading cost every time.
+- Runs detection + multi-object tracking on every frame using Ultralytics' `.track()` API with configurable confidence and IoU thresholds.
+- For every detected person, checks bounding-box overlap against hardhat and safety-vest detections to determine PPE compliance (`has_hardhat`, `has_vest`, `has_ppe`).
+- Tracks each object's first/last-seen frame and trajectory across the video, to compute how long objects were present and how far/fast they moved — this feeds duration- and speed-based rules downstream.
+- Adds frame-relative position/size to every detection (0–1 range) so rules can reason about zones independent of video resolution.
+- Output schema (per frame): frame ID, timestamp, frame size, and a list of detections with bounding box, center, class, confidence, track ID, and PPE flags.
 
-ℹ️  Input video: warehouse_video.mp4
-ℹ️  Output: tracking_complete.json
+### 3.2 Rule Engine
 
-✅ Detection & Tracking stage completed
-✅ Valid tracking JSON (1500 frames)
+The rule engine (existing team component) evaluates the following safety conditions per frame and accumulates alerts with a severity level (`low` / `medium` / `high` / `critical`):
 
-ℹ️  Input: tracking_complete.json
-ℹ️  Output: alerts_report.json
+| Rule | Trigger | Severity |
+|---|---|---|
+| Vehicle–person proximity | Person within unsafe distance of a vehicle | high |
+| Machinery–person proximity | Machinery within unsafe distance of a person | critical |
+| Missing PPE (general) | Person with no PPE for N consecutive frames | high |
+| Missing hardhat | Person with no hardhat for N consecutive frames | medium |
+| Missing vest | Person with no safety vest for N consecutive frames | medium |
+| Idle worker | Person stationary in place beyond a time threshold | low |
+| Crowd detection | Too many people in one frame/zone | medium |
+| Abnormal speed | Object moving faster than the configured threshold | medium |
 
-✅ Rule Engine stage completed
-✅ Valid alerts JSON (147 alerts across 8 types)
+Distance thresholds are calibrated in real-world meters and converted to pixels via a configurable pixels-per-meter factor, so the same rule set can be reused across cameras with different framing.
 
-======================================================================
-  📊 Pipeline Results Summary
-======================================================================
+### 3.3 Pipeline Wrapper (`SafetyVideoPipeline`)
 
-📈 Total Violations Detected: 147
+This is the component the LLM sub-team built specifically to close the gap between the detection module and the rule engine, and to give the LLM layer one clean entry point:
 
-📋 Violations by Type:
-   • vehicle_person_proximity: 23
-   • person_no_ppe: 18
-   • machinery_person_proximity: 12
-   ...
+- Wires the detector and rule engine together behind a single method, `process_video(video_path)`.
+- Resets rule-engine state at the start of every video, so alerts from a previous run never leak into a new one.
+- Returns one dictionary with three top-level sections: `video_info`, `tracking_summary`, and `alerts_report` — exactly what the LLM prompt generator needs to build the final HSE report.
+- Optionally persists intermediate tracking data and the alerts report to disk for debugging/auditing, without requiring it for normal operation.
+- Designed to be instantiated once per service lifetime (so the model loads once) and reused for every incoming video.
 
-✅ Pipeline completed successfully!
-```
+### 3.4 Output Format
 
-### Example 2: Custom Video and Output
-```bash
-python pipeline_orchestrator.py \
-  --video warehouse_2024_01_15.mp4 \
-  --output-tracking data/tracking_jan15.json \
-  --output-alerts data/alerts_jan15.json
-```
-
-### Example 3: Webcam Live Processing
-```bash
-python pipeline_orchestrator.py \
-  --video 0 \
-  --output-tracking live_tracking.json \
-  --output-alerts live_alerts.json
-```
-
-**Note:** For webcam, pipeline will process video until stopped (Ctrl+C)
-
-### Example 4: Aggressive Safety Settings
-```bash
-python pipeline_orchestrator.py \
-  --video warehouse.mp4 \
-  --conf 0.4 \
-  --iou 0.35
-```
-
-**Effect:** More detections, potentially more false positives, but catches more violations
-
-### Example 5: Conservative Settings
-```bash
-python pipeline_orchestrator.py \
-  --video warehouse.mp4 \
-  --conf 0.7 \
-  --iou 0.55
+```json
+{
+  "video_info": {
+    "source": "warehouse.mp4",
+    "fps": 30,
+    "total_frames": 900,
+    "processed_at": "2026-08-03T12:00:00"
+  },
+  "tracking_summary": {
+    "object_durations": { "12": {"class": "Person", "duration_seconds": 24.3} },
+    "object_movement": { "12": {"total_distance": 812.4, "avg_speed": 3.1} },
+    "classes": { "0": "Hardhat", "5": "Person", "9": "vehicle" }
+  },
+  "alerts_report": {
+    "total_alerts": 12,
+    "alerts_by_type": {"machinery_person_proximity": 3, "person_no_hardhat": 9},
+    "severity_distribution": {"critical": 3, "medium": 9},
+    "alerts": [
+      {
+        "type": "machinery_person_proximity",
+        "frame_id": 145,
+        "track_id": 12,
+        "machinery_id": 7,
+        "distance_m": 0.62,
+        "severity": "critical",
+        "message": "Machinery 7 approached person 12! Distance: 0.62m"
+      }
+    ]
+  }
+}
 ```
 
-**Effect:** Fewer but more confident detections, fewer false positives
+This structure is stable and self-describing, which keeps prompt-template design on the LLM side decoupled from changes in the detection/rule-engine internals.
 
-### Example 6: Batch Processing Multiple Videos
-```bash
-#!/bin/bash
-# process_all.sh
+---
 
-for video in videos/*.mp4; do
-  echo "Processing: $video"
-  python pipeline_orchestrator.py \
-    --video "$video" \
-    --output-tracking "tracking_${video%.*}.json" \
-    --output-alerts "alerts_${video%.*}.json"
-done
-```
+## 4. Usage
 
-**Run with:**
-```bash
-bash process_all.sh
-```
+Single-call usage (simplest integration point):
 
-### Example 7: Python Integration
 ```python
-from pipeline_orchestrator import SafetyMonitoringPipeline
+from llm_pipeline_wrapper import run_pipeline_for_llm
 
-# Initialize
-pipeline = SafetyMonitoringPipeline()
-
-# Execute
-success = pipeline.execute(
+result = run_pipeline_for_llm(
     video_path="warehouse.mp4",
     model_path="models/best.pt",
-    output_tracking="tracking.json",
-    output_alerts="alerts.json",
-    conf_threshold=0.5,
-    iou_threshold=0.45
 )
-
-if success:
-    # Load results
-    report = pipeline.load_alerts_report("alerts.json")
-    print(f"Total alerts: {report['total_alerts']}")
-    
-    # Process further
-    for alert in report['alerts'][:10]:
-        print(f"• {alert['message']}")
 ```
 
----
-
-## 📤 Output Files
-
-### 1. tracking_complete.json
-**Intermediate output from Detection Module**
-
-```json
-{
-    "metadata": {
-        "fps": 30,
-        "total_frames": 1500,
-        "classes": {
-            "0": "Person",
-            "1": "vehicle",
-            "2": "machinery"
-        }
-    },
-    "frames": [
-        {
-            "frame_id": 0,
-            "detections": [
-                {
-                    "track_id": 1,
-                    "class_id": 0,
-                    "class_name": "Person",
-                    "confidence": 0.95,
-                    "bbox": [100, 150, 200, 400],
-                    "center": {"x": 150, "y": 275},
-                    "has_ppe": true,
-                    "has_hardhat": true,
-                    "has_vest": true
-                },
-                ...
-            ]
-        },
-        ...
-    ]
-}
-```
-
-**Usage:** 
-- Can be reused with different rule configurations
-- Can be visualized for debugging
-- Can be analyzed separately
-
-### 2. alerts_report.json
-**Final output from Rule Engine**
-
-```json
-{
-    "total_alerts": 147,
-    "alerts_by_type": {
-        "vehicle_person_proximity": 23,
-        "person_no_ppe": 18,
-        "machinery_person_proximity": 12,
-        "person_no_hardhat": 15,
-        "person_no_vest": 20,
-        "person_idle": 31,
-        "crowd_detection": 18,
-        "high_speed": 14
-    },
-    "severity_distribution": {
-        "critical": 12,
-        "high": 34,
-        "medium": 65,
-        "low": 36
-    },
-    "alerts": [
-        {
-            "type": "vehicle_person_proximity",
-            "frame_id": 120,
-            "track_id": 5,
-            "vehicle_id": 3,
-            "distance_m": 2.5,
-            "severity": "high",
-            "message": "Person 5 approached vehicle 3! Distance: 2.5m"
-        },
-        ...
-    ]
-}
-```
-
-**Usage:**
-- Input to LLM Report Generator
-- Store in database
-- Create visualizations
-- Generate compliance reports
-
----
-
-## 🔧 Configuration
-
-### Method 1: Edit DEFAULT_CONFIG (Permanent)
-
-Edit `pipeline_orchestrator.py`:
-```python
-DEFAULT_CONFIG = {
-    "DETECT_SCRIPT": "info_detect.py",
-    "RULE_ENGINE_SCRIPT": "rules_engine.py",
-    "MODEL_PATH": "models/best.pt",
-    "VIDEO_PATH": "warehouse_video.mp4",
-    "TRACKING_JSON": "tracking_complete.json",
-    "ALERTS_JSON": "alerts_report.json",
-    "CONF_THRESHOLD": 0.3,
-    "IOU_THRESHOLD": 0.45,
-}
-```
-
-### Method 2: Use Command-Line Arguments (Temporary)
-
-```bash
-python pipeline_orchestrator.py \
-  --video video.mp4 \
-  --model best.pt \
-  --conf 0.4 \
-  --iou 0.5
-```
-
-### Method 3: Python Configuration Object (Programmatic)
+Service-style usage (recommended for production, avoids reloading the model per request):
 
 ```python
-from pipeline_orchestrator import SafetyMonitoringPipeline
+from llm_pipeline_wrapper import SafetyVideoPipeline
 
-custom_config = {
-    "DETECT_SCRIPT": "detection.py",
-    "RULE_ENGINE_SCRIPT": "rules.py",
-    "MODEL_PATH": "models/best.pt",
-    "VIDEO_PATH": "video.mp4",
-    "TRACKING_JSON": "tracking.json",
-    "ALERTS_JSON": "alerts.json",
-    "CONF_THRESHOLD": 0.4,
-    "IOU_THRESHOLD": 0.5,
-}
+pipeline = SafetyVideoPipeline(detector_config={"model_path": "models/best.pt"})
 
-pipeline = SafetyMonitoringPipeline(config=custom_config)
-pipeline.execute(video_path="test.mp4", model_path="best.pt")
+result_1 = pipeline.process_video("video1.mp4")
+result_2 = pipeline.process_video("video2.mp4")
 ```
+
+The returned `result` dictionary is passed directly into the LLM prompt-generation step (`HSEPromptGenerator`) to produce the final Persian-language HSE report.
 
 ---
 
-## 🐛 Troubleshooting
+## 5. Quality & Testing
 
-### Issue: "File not found"
-```
-❌ Video file not found: /path/to/warehouse.mp4
-```
+| Check | Method | Result |
+|---|---|---|
+| Module syntax | `py_compile` | Passed |
+| Component isolation | Instantiated `YOLODetector` and `SafetyVideoPipeline` with mocked YOLO/OpenCV dependencies | Passed — classes build and wire together correctly |
+| End-to-end logic | Fed synthetic frame data (a person placed next to machinery) through the rule engine | Passed — correctly produced a `machinery_person_proximity` alert with `critical` severity |
 
-**Solution:**
-```bash
-# Check file exists
-ls -la warehouse.mp4
+During implementation, a configuration bug was found and fixed in the existing rule-engine module: a stray docstring inside the default configuration dictionary was silently merging with the first setting's key (due to Python's automatic string concatenation), which caused the rule engine to fail on startup with a `KeyError`. This has been corrected; the rule engine now initializes and applies distance thresholds correctly. Details are documented separately for the code review.
 
-# Use absolute path
-python pipeline_orchestrator.py --video /absolute/path/video.mp4
-
-# Use relative path from current directory
-python pipeline_orchestrator.py --video ./videos/warehouse.mp4
-```
-
-### Issue: "YOLO model not found"
-```
-❌ YOLO model not found: models/best.pt
-```
-
-**Solution:**
-```bash
-# Create models directory
-mkdir -p models
-
-# Place model there
-cp /path/to/best.pt models/
-
-# Verify
-ls -la models/best.pt
-```
-
-### Issue: "Script not found"
-```
-❌ Detection & Tracking script not found: info_detect.py
-```
-
-**Solution:**
-```bash
-# Check files in current directory
-ls -la *.py
-
-# Ensure these exist:
-# - pipeline_orchestrator.py
-# - info_detect.py
-# - rules_engine.py
-
-# Run from correct directory
-cd /path/to/project
-python pipeline_orchestrator.py
-```
-
-### Issue: "Validation failed - missing keys"
-```
-❌ Missing required keys in tracking JSON: ['metadata', 'frames']
-```
-
-**Solution:**
-- Verify detection module is generating correct format
-- Check intermediate JSON file manually
-- Ensure detection module completed successfully
-
-### Issue: Webcam not working
-```
-❌ Cannot open video source (device 0)
-```
-
-**Solution:**
-```bash
-# Check if webcam is accessible
-python -c "import cv2; cap = cv2.VideoCapture(0); print(cap.isOpened())"
-
-# Try different device ID
-python pipeline_orchestrator.py --video 1  # Try device 1
-
-# On Linux, check permissions
-ls -la /dev/video*
-```
+Full end-to-end validation with a real video and the trained model weights is the remaining step — it wasn't possible in the review environment due to missing `ultralytics`/`opencv-python`, but the detection logic was ported directly from the team's existing, already-validated detection script, so no behavioral changes are expected.
 
 ---
 
-## 📊 Integration with Other Modules
+## 6. Status & Next Steps
 
-### With LLM Report Generator
-```python
-from pipeline_orchestrator import SafetyMonitoringPipeline
-from llm_report_generator import HSEReportGenerator
+**Status:** Detection, tracking, rule engine, and the unifying wrapper are implemented, wired together, and unit-verified. Ready for integration testing with real footage.
 
-# 1. Run pipeline
-pipeline = SafetyMonitoringPipeline()
-pipeline.execute(video_path="warehouse.mp4", model_path="best.pt")
-
-# 2. Load alerts
-alerts_report = pipeline.load_alerts_report("alerts_report.json")
-
-# 3. Generate LLM report
-llm_gen = HSEReportGenerator()
-persian_report = llm_gen.generate_report(alerts_report)
-
-# 4. Save
-with open("hse_report.md", "w", encoding='utf-8') as f:
-    f.write(persian_report)
-```
-
-### With Database
-```python
-from pipeline_orchestrator import SafetyMonitoringPipeline
-from database import SafetyAlertsDB
-
-pipeline = SafetyMonitoringPipeline()
-pipeline.execute(video_path="warehouse.mp4", model_path="best.pt")
-
-db = SafetyAlertsDB()
-report = pipeline.load_alerts_report("alerts_report.json")
-
-for alert in report['alerts']:
-    db.insert_alert(alert)
-
-print(f"Inserted {len(report['alerts'])} alerts into database")
-```
-
-### With Visualization
-```python
-from pipeline_orchestrator import SafetyMonitoringPipeline
-from visualization import AlertVisualizer
-
-pipeline = SafetyMonitoringPipeline()
-pipeline.execute(video_path="warehouse.mp4", model_path="best.pt")
-
-viz = AlertVisualizer()
-viz.create_report("alerts_report.json", output_html="report.html")
-```
+**Next steps:**
+1. Run the pipeline against real warehouse footage with the production model weights to validate detection quality and alert accuracy end-to-end.
+2. Connect `SafetyVideoPipeline`'s output directly into `HSEPromptGenerator` and the Jinja2 report templates.
+3. Decide on deployment shape — whether the pipeline runs as a long-lived service (model loaded once) or a per-job script — and confirm resource/VRAM budget accordingly.
+4. Add basic logging/metrics around processing time per video and alert counts, for monitoring once this goes into the broader CV/backend pipeline.
 
 ---
 
-## 🎯 Best Practices
+## 7. Deliverables
 
-### 1. Directory Structure
-```
-project/
-├── pipeline_orchestrator.py
-├── info_detect.py
-├── rules_engine.py
-├── models/
-│   └── best.pt
-├── videos/
-│   ├── warehouse_2024_01_15.mp4
-│   └── warehouse_2024_01_20.mp4
-├── outputs/
-│   ├── tracking_2024_01_15.json
-│   ├── alerts_2024_01_15.json
-│   ├── tracking_2024_01_20.json
-│   └── alerts_2024_01_20.json
-└── README.md
-```
-
-### 2. Configuration Management
-```bash
-# Create config file
-cat > pipeline_config.txt << EOF
-VIDEO_PATH=videos/warehouse.mp4
-MODEL_PATH=models/best.pt
-CONF_THRESHOLD=0.4
-IOU_THRESHOLD=0.45
-EOF
-
-# Use in script
-source pipeline_config.txt
-python pipeline_orchestrator.py --video $VIDEO_PATH --model $MODEL_PATH
-```
-
-### 3. Error Handling
-```bash
-#!/bin/bash
-
-if python pipeline_orchestrator.py --video warehouse.mp4; then
-    echo "✅ Pipeline succeeded"
-    # Process alerts
-else
-    echo "❌ Pipeline failed"
-    exit 1
-fi
-```
-
-### 4. Logging to File
-```bash
-python pipeline_orchestrator.py \
-  --video warehouse.mp4 \
-  2>&1 | tee pipeline_log.txt
-```
-
-### 5. Performance Monitoring
-```python
-import time
-from pipeline_orchestrator import SafetyMonitoringPipeline
-
-start = time.time()
-pipeline = SafetyMonitoringPipeline()
-pipeline.execute(video_path="warehouse.mp4", model_path="best.pt")
-elapsed = time.time() - start
-
-print(f"Total execution time: {elapsed:.2f} seconds")
-```
-
----
-
-## 📝 Notes
-
-- **Output files are overwritten**: Each run overwrites previous outputs with same names
-- **Intermediate files**: tracking_complete.json is kept after pipeline for debugging
-- **Error recovery**: If detection fails, rule engine won't run (fail-fast)
-- **Validation**: Both outputs are validated before pipeline completes
-- **Performance**: Larger videos take longer; consider resolution/FPS tradeoff
-
----
-
-## 🔗 Next Steps
-
-1. ✅ Run pipeline: `python pipeline_orchestrator.py`
-2. ✅ Check outputs: `alerts_report.json`
-3. ✅ Integrate with LLM: Pass alerts to report generator
-4. ✅ Archive results: Store tracking & alerts JSON
-5. ✅ Monitor database: Track violations over time
-
----
-
-## 📞 Support
-
-For issues with:
-- **Detection module**: See `info_detect.py` documentation
-- **Rule engine**: See `rules_engine.py` documentation
-- **Orchestrator**: Check paths and command-line arguments
-
-Enjoy! 🚀
+- `llm_pipeline_wrapper.py` — the detection + rule-engine + JSON-assembly module described above.
+- Corrected rule-engine configuration file, ready to replace the existing one in the repository.
