@@ -7,4 +7,4 @@ __pycache__
 LLM/__pycache__/
 LLM/tests/__pycache__/
 *.zip
-
+LLM/model/
