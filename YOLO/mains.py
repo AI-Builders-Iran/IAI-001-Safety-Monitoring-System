@@ -1,856 +1,662 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
-Warehouse Safety Monitoring Pipeline Orchestrator.
+Video-to-JSON Wrapper for the LLM Report Generation Layer.
 
-This module orchestrates the complete safety monitoring pipeline:
-    1. Detection & Tracking (YOLO + Tracking) → tracking JSON
-    2. Rule Engine Analysis → alerts JSON
-    3. Report Generation (optional LLM integration)
+This module is the single entry point that the LLM sub-system should call.
+It hides the two upstream stages (YOLO detection/tracking and the rule
+engine) behind one simple function/class, so the LLM layer only ever has
+to do:
+
+    from llm_pipeline_wrapper import run_pipeline_for_llm
+    result = run_pipeline_for_llm("warehouse.mp4", model_path="models/best.pt")
+    # result is a plain dict, ready to json.dumps() or feed into a prompt
 
 Pipeline Flow:
-    Video Input
-        ↓
-    Detection Module (info_detect.py)
-        ↓
-    tracking_complete.json
-        ↓
-    Rule Engine (rules_engine.py)
-        ↓
-    alerts_report.json
-        ↓
-    LLM Report Generator (optional)
-        ↓
-    Final HSE Report
+    video file
+        │
+        ▼
+    YOLODetector.run()          -> در حافظه، بدون فایل واسط: تشخیص + ردیابی هر فریم
+        │
+        ▼
+    RuleEngine.process_frame()  -> اعمال قوانین ایمنی روی هر فریم (از فایل rules_eng.py)
+        │
+        ▼
+    SafetyVideoPipeline.process_video() -> ترکیب دو خروجی در یک دیکشنری واحد
+        │
+        ▼
+    JSON output (dict)          -> ورودی نهایی برای HSEPromptGenerator / LLM
 
-Configuration:
-    Set file paths and parameters in the CONFIG dictionary below.
-    Or pass them via command-line arguments.
-
-Example Usage:
-    # Using defaults from CONFIG
-    python pipeline_orchestrator.py
-
-    # Using custom video and model
-    python pipeline_orchestrator.py \
-        --video warehouse_video.mp4 \
-        --model models/best.pt \
-        --output-tracking tracking.json \
-        --output-alerts alerts.json
-
-    # Using webcam
-    python pipeline_orchestrator.py --video 0
+Notes:
+    - No intermediate files are required; everything runs in memory by
+      default. Saving tracking/alerts JSON to disk is optional (useful for
+      debugging or auditing) via the `save_tracking_json` / `save_alerts_json`
+      arguments.
+    - This module deliberately does NOT import/execute `info_DETECT.py`
+      directly (that file is a top-level script with hard-coded Windows
+      paths). Instead, the detection logic has been refactored into the
+      reusable `YOLODetector` class below, using the same detection/PPE
+      matching logic.
+    - `RuleEngine` is imported as-is from `rules_eng.py` and used
+      programmatically (no subprocess call), which is faster and avoids
+      writing tracking_complete.json to disk on every run.
 """
 
+from __future__ import annotations
+
 import argparse
+import datetime
 import json
-import os
-import subprocess
-import sys
-from typing import Dict, List, Tuple, Any, Optional
+import math
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# کتابخانه‌های پردازش ویدیو و مدل یولو
+import cv2
+from ultralytics import YOLO
+
+# موتور قوانین ایمنی (همان فایل rules_eng.py موجود در پروژه)
+from rules_eng import RuleEngine
 
 # ============================================================
-# Configuration
+# پیکربندی پیش‌فرض تشخیص (برگرفته از info_DETECT.py)
 # ============================================================
 
-DEFAULT_CONFIG = {
-    """
-    Pipeline Configuration:
+# نگاشت کلاس‌ها بر اساس data.yaml پروژه؛ در صورت نیاز عوض شود
+DEFAULT_CLASS_MAP: Dict[int, str] = {
+    0: "Hardhat",
+    1: "Mask",
+    2: "NO-Hardhat",
+    3: "NO-Mask",
+    4: "NO-Safety Vest",
+    5: "Person",
+    6: "Safety Cone",
+    7: "Safety Vest",
+    8: "machinery",
+    9: "vehicle",
+    10: "mask",
+    11: "no-mask",
+    12: "vehicle",
+}
 
-    Paths:
-        - DETECT_SCRIPT: Path to detection/tracking module (info_detect.py)
-        - RULE_ENGINE_SCRIPT: Path to rule engine module (rules_engine.py)
-        - MODEL_PATH: Path to YOLO model weights
-        - VIDEO_PATH: Path to input video or device ID (0 for webcam)
+DEFAULT_DETECTOR_CONFIG: Dict[str, Any] = {
+    # مسیر وزن‌های مدل یولو؛ حتماً هنگام ساخت YOLODetector مقداردهی شود
+    "model_path": "models/best.pt",
 
-    Output Files:
-        - TRACKING_JSON: Intermediate output from detection module
-        - ALERTS_JSON: Final output from rule engine
+    # آستانه‌های تشخیص و ردیابی
+    "conf_threshold": 0.3,
+    "iou_threshold": 0.45,
 
-    Detection Parameters:
-        - CONF_THRESHOLD: Detection confidence threshold (0.0-1.0)
-        - IOU_THRESHOLD: Non-max suppression IOU threshold
-    """
+    # آستانه هم‌پوشانی برای اتصال تجهیزات ایمنی (کلاه/جلیقه) به شخص
+    "iou_ppe_threshold": 0.15,
 
-    # Script paths
-    "DETECT_SCRIPT": "info_detect.py",
-    "RULE_ENGINE_SCRIPT": "rules_engine.py",
+    # نگاشت کلاس‌ها
+    "class_map": DEFAULT_CLASS_MAP,
 
-    # Model path
-    "MODEL_PATH": "models/best.pt",
+    # نام کلاس‌های کلیدی (برای منطق اتصال PPE به شخص)
+    "person_class_name": "Person",
+    "hardhat_class_name": "Hardhat",
+    "vest_class_name": "Safety Vest",
 
-    # Input video
-    "VIDEO_PATH": "warehouse_video.mp4",
-
-    # Output files
-    "TRACKING_JSON": "tracking_complete.json",
-    "ALERTS_JSON": "alerts_report.json",
-
-    # Detection thresholds
-    "CONF_THRESHOLD": 0.3,
-    "IOU_THRESHOLD": 0.45,
+    # هر چند فریم یک بار پیشرفت در کنسول چاپ شود
+    "log_every_n_frames": 30,
 }
 
 
 # ============================================================
-# Logger Class
+# توابع کمکی هندسی
 # ============================================================
 
-class PipelineLogger:
+def _calculate_iou(box1: Dict[str, float], box2: Dict[str, float]) -> float:
     """
-    Unified logging for pipeline orchestration.
+    Compute Intersection-over-Union (IoU) between two bounding boxes.
 
-    Provides consistent formatting for status messages, errors, and progress.
+    Args:
+        box1: Dict with keys x1, y1, x2, y2.
+        box2: Dict with keys x1, y1, x2, y2.
+
+    Returns:
+        IoU value in range [0.0, 1.0].
     """
+    x1 = max(box1["x1"], box2["x1"])
+    y1 = max(box1["y1"], box2["y1"])
+    x2 = min(box1["x2"], box2["x2"])
+    y2 = min(box1["y2"], box2["y2"])
 
-    @staticmethod
-    def header(title: str, width: int = 70) -> None:
-        """
-        Print section header with formatting.
+    if x2 < x1 or y2 < y1:
+        return 0.0
 
-        Args:
-            title: Header text
-            width: Width of separator line
-        """
-        print("\n" + "=" * width)
-        print(f"  {title}")
-        print("=" * width)
+    intersection = (x2 - x1) * (y2 - y1)
+    area1 = (box1["x2"] - box1["x1"]) * (box1["y2"] - box1["y1"])
+    area2 = (box2["x2"] - box2["x1"]) * (box2["y2"] - box2["y1"])
+    union = area1 + area2 - intersection
 
-    @staticmethod
-    def info(message: str) -> None:
-        """Print informational message."""
-        print(f"ℹ️  {message}")
-
-    @staticmethod
-    def success(message: str) -> None:
-        """Print success message."""
-        print(f"✅ {message}")
-
-    @staticmethod
-    def error(message: str) -> None:
-        """Print error message."""
-        print(f"❌ {message}")
-
-    @staticmethod
-    def warning(message: str) -> None:
-        """Print warning message."""
-        print(f"⚠️  {message}")
-
-    @staticmethod
-    def task(stage: int, title: str) -> None:
-        """Print task progress."""
-        print(f"\n📋 Stage {stage}: {title}")
-
-    @staticmethod
-    def step(message: str) -> None:
-        """Print execution step."""
-        print(f"   → {message}")
+    return intersection / union if union > 0 else 0.0
 
 
-log = PipelineLogger()
+def _euclidean_distance(p1: tuple, p2: tuple) -> float:
+    """
+    Compute Euclidean distance between two 2D points.
+
+    Args:
+        p1: (x, y) tuple.
+        p2: (x, y) tuple.
+
+    Returns:
+        Distance between p1 and p2.
+    """
+    return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
 
 
 # ============================================================
-# Path Management
+# مرحله ۱: تشخیص و ردیابی با YOLO
 # ============================================================
 
-class PathManager:
+class YOLODetector:
     """
-    Centralized path management and validation.
-
-    Handles absolute path resolution, existence checking, and
-    directory creation for the pipeline.
-    """
-
-    @staticmethod
-    def resolve(path: str) -> str:
-        """
-        Convert path to absolute path.
-
-        Args:
-            path: Relative or absolute path
-
-        Returns:
-            Absolute path as string
-        """
-        return os.path.abspath(path)
-
-    @staticmethod
-    def exists(path: str) -> bool:
-        """
-        Check if file exists.
-
-        Args:
-            path: File path to check
-
-        Returns:
-            True if file exists, False otherwise
-        """
-        return os.path.exists(PathManager.resolve(path))
-
-    @staticmethod
-    def validate_file(path: str, file_type: str = "file") -> bool:
-        """
-        Validate file existence and log result.
-
-        Args:
-            path: File path to validate
-            file_type: Description of file type (for logging)
-
-        Returns:
-            True if validation passed, False otherwise
-        """
-        abs_path = PathManager.resolve(path)
-
-        if not os.path.exists(abs_path):
-            log.error(f"{file_type} not found: {abs_path}")
-            return False
-
-        if not os.path.isfile(abs_path):
-            log.error(f"Path is not a file: {abs_path}")
-            return False
-
-        log.success(f"{file_type} found: {abs_path}")
-        return True
-
-    @staticmethod
-    def ensure_directory(path: str) -> bool:
-        """
-        Create directory if it doesn't exist.
-
-        Args:
-            path: Directory path
-
-        Returns:
-            True if directory exists or was created
-        """
-        abs_path = PathManager.resolve(path)
-
-        try:
-            os.makedirs(abs_path, exist_ok=True)
-            return True
-        except Exception as e:
-            log.error(f"Failed to create directory: {e}")
-            return False
-
-    @staticmethod
-    def get_directory(file_path: str) -> str:
-        """
-        Get directory containing file.
-
-        Args:
-            file_path: Path to file
-
-        Returns:
-            Directory path
-        """
-        return os.path.dirname(PathManager.resolve(file_path))
-
-
-# ============================================================
-# Module Execution
-# ============================================================
-
-class PipelineStage:
-    """
-    Base class for pipeline stages (Detection, RuleEngine, etc).
-
-    Handles subprocess execution, argument building, and error handling
-    for individual pipeline components.
-    """
-
-    def __init__(self, script_path: str, stage_name: str):
-        """
-        Initialize pipeline stage.
-
-        Args:
-            script_path: Path to Python script for this stage
-            stage_name: Human-readable name for logging
-        """
-        self.script_path = script_path
-        self.stage_name = stage_name
-        self.last_return_code = None
-
-    def validate(self) -> bool:
-        """
-        Validate that script file exists.
-
-        Returns:
-            True if validation passed
-        """
-        return PathManager.validate_file(
-            self.script_path,
-            f"{self.stage_name} script"
-        )
-
-    def build_command(self, arguments: List[str]) -> List[str]:
-        """
-        Build subprocess command.
-
-        Args:
-            arguments: List of command-line arguments
-
-        Returns:
-            Full command list for subprocess.run()
-        """
-        abs_path = PathManager.resolve(self.script_path)
-        return [sys.executable, abs_path] + arguments
-
-    def execute(self, arguments: List[str]) -> bool:
-        """
-        Execute stage script with arguments.
-
-        Args:
-            arguments: List of command-line arguments to pass
-
-        Returns:
-            True if execution succeeded, False otherwise
-
-        Raises:
-            Various subprocess exceptions if execution fails
-        """
-        script_abs = PathManager.resolve(self.script_path)
-
-        if not os.path.exists(script_abs):
-            log.error(f"Script not found: {script_abs}")
-            return False
-
-        cmd = self.build_command(arguments)
-        log.step(f"Executing: {' '.join(cmd)}")
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                shell=False
-            )
-
-            # Capture return code
-            self.last_return_code = result.returncode
-
-            # Log output
-            if result.stdout:
-                print(result.stdout)
-
-            # Check for errors
-            if result.returncode != 0:
-                log.error(f"Execution failed (exit code {result.returncode})")
-                if result.stderr:
-                    log.error(f"Error output: {result.stderr}")
-                return False
-
-            return True
-
-        except FileNotFoundError as e:
-            log.error(f"Python executable not found: {e}")
-            return False
-        except Exception as e:
-            log.error(f"Unexpected error: {e}")
-            return False
-
-
-# ============================================================
-# Pipeline Stages
-# ============================================================
-
-class DetectionStage(PipelineStage):
-    """
-    Detection & Tracking Stage.
-
-    Executes YOLO detection and object tracking to generate
-    tracking JSON file with frame-by-frame detections.
-    """
-
-    def __init__(self, script_path: str = DEFAULT_CONFIG["DETECT_SCRIPT"]):
-        """Initialize detection stage."""
-        super().__init__(script_path, "Detection & Tracking")
-
-    def run(
-            self,
-            video_path: str,
-            model_path: str,
-            output_json: str,
-            conf_threshold: float = 0.3,
-            iou_threshold: float = 0.45
-    ) -> bool:
-        """
-        Execute detection stage.
-
-        Args:
-            video_path: Path to input video or device ID (0 for webcam)
-            model_path: Path to YOLO model weights
-            output_json: Path to output tracking JSON
-            conf_threshold: Detection confidence threshold (0.0-1.0)
-            iou_threshold: NMS IOU threshold
-
-        Returns:
-            True if detection succeeded
-        """
-        log.task(1, "Detection & Tracking Stage")
-
-        # Validate inputs
-        if not PathManager.validate_file(model_path, "YOLO model"):
-            return False
-
-        # Handle webcam case
-        if video_path != "0":
-            if not PathManager.validate_file(video_path, "Video file"):
-                return False
-
-        # Build arguments
-        arguments = [
-            "--video", video_path,
-            "--model", model_path,
-            "--output", output_json,
-            "--conf", str(conf_threshold),
-            "--iou", str(iou_threshold)
-        ]
-
-        log.info(f"Input video: {video_path}")
-        log.info(f"Output: {output_json}")
-
-        return self.execute(arguments)
-
-
-class RuleEngineStage(PipelineStage):
-    """
-    Rule Engine Analysis Stage.
-
-    Processes tracking JSON and applies safety rules to generate
-    structured alerts JSON.
-    """
-
-    def __init__(self, script_path: str = DEFAULT_CONFIG["RULE_ENGINE_SCRIPT"]):
-        """Initialize rule engine stage."""
-        super().__init__(script_path, "Rule Engine")
-
-    def run(
-            self,
-            input_json: str,
-            output_json: str
-    ) -> bool:
-        """
-        Execute rule engine stage.
-
-        Args:
-            input_json: Path to tracking JSON from detection stage
-            output_json: Path to output alerts JSON
-
-        Returns:
-            True if analysis succeeded
-        """
-        log.task(2, "Rule Engine Analysis Stage")
-
-        # Validate input
-        if not PathManager.validate_file(input_json, "Tracking JSON"):
-            return False
-
-        # Build arguments
-        arguments = [
-            "--input", input_json,
-            "--output", output_json
-        ]
-
-        log.info(f"Input: {input_json}")
-        log.info(f"Output: {output_json}")
-
-        return self.execute(arguments)
-
-
-# ============================================================
-# Report Validation
-# ============================================================
-
-class ReportValidator:
-    """
-    Validate pipeline output files.
-
-    Ensures generated JSON files are valid and contain expected structure.
-    """
-
-    @staticmethod
-    def validate_tracking_json(file_path: str) -> Tuple[bool, Optional[Dict]]:
-        """
-        Validate tracking JSON structure.
-
-        Expected structure:
+    Wraps an Ultralytics YOLO model to run detection + multi-object tracking
+    on a video and produce a structured, frame-by-frame tracking report
+    entirely in memory (no intermediate JSON file is written to disk).
+
+    The output schema matches what `RuleEngine` (rules_eng.py) expects:
         {
-            "metadata": {"fps": int, "classes": {...}},
-            "frames": [{"frame_id": int, "detections": [...]}]
+            "metadata": {...},
+            "object_durations": {...},
+            "object_movement": {...},
+            "frames": [
+                {"frame_id": int, "detections": [...], ...}, ...
+            ]
         }
-
-        Args:
-            file_path: Path to tracking JSON
-
-        Returns:
-            Tuple of (is_valid, parsed_data)
-        """
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Validate structure
-            required_keys = ["metadata", "frames"]
-            if not all(key in data for key in required_keys):
-                log.error(f"Missing required keys in tracking JSON: {required_keys}")
-                return False, None
-
-            # Validate frames
-            frames = data.get("frames", [])
-            if not isinstance(frames, list):
-                log.error("'frames' must be a list")
-                return False, None
-
-            log.success(f"Valid tracking JSON ({len(frames)} frames)")
-            return True, data
-
-        except json.JSONDecodeError as e:
-            log.error(f"Invalid JSON format: {e}")
-            return False, None
-        except FileNotFoundError:
-            log.error(f"File not found: {file_path}")
-            return False, None
-
-    @staticmethod
-    def validate_alerts_json(file_path: str) -> Tuple[bool, Optional[Dict]]:
-        """
-        Validate alerts JSON structure.
-
-        Expected structure:
-        {
-            "total_alerts": int,
-            "alerts_by_type": {...},
-            "severity_distribution": {...},
-            "alerts": [...]
-        }
-
-        Args:
-            file_path: Path to alerts JSON
-
-        Returns:
-            Tuple of (is_valid, parsed_data)
-        """
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Validate structure
-            required_keys = ["total_alerts", "alerts"]
-            if not all(key in data for key in required_keys):
-                log.error(f"Missing required keys in alerts JSON: {required_keys}")
-                return False, None
-
-            total = data.get("total_alerts", 0)
-            alerts = data.get("alerts", [])
-
-            log.success(
-                f"Valid alerts JSON ({total} alerts across "
-                f"{len(data.get('alerts_by_type', {}))} types)"
-            )
-            return True, data
-
-        except json.JSONDecodeError as e:
-            log.error(f"Invalid JSON format: {e}")
-            return False, None
-        except FileNotFoundError:
-            log.error(f"File not found: {file_path}")
-            return False, None
-
-
-# ============================================================
-# Pipeline Orchestrator
-# ============================================================
-
-class SafetyMonitoringPipeline:
-    """
-    Main pipeline orchestrator.
-
-    Coordinates execution of all pipeline stages from detection
-    through rule engine analysis, with validation and error handling.
 
     Example:
-        >>> pipeline = SafetyMonitoringPipeline()
-        >>> success = pipeline.execute(
-        ...     video_path="warehouse.mp4",
-        ...     model_path="models/best.pt",
-        ...     output_tracking="tracking.json",
-        ...     output_alerts="alerts.json"
-        ... )
-        >>> if success:
-        ...     report = pipeline.load_alerts_report()
+        >>> detector = YOLODetector({"model_path": "models/best.pt"})
+        >>> tracking_data = detector.run("warehouse.mp4")
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
-        Initialize pipeline with configuration.
+        Initialize the detector and load the YOLO model weights.
 
         Args:
-            config: Optional configuration dictionary. If None, uses DEFAULT_CONFIG.
+            config: Optional overrides merged on top of
+                DEFAULT_DETECTOR_CONFIG. Must include a valid "model_path"
+                pointing to a .pt weights file.
         """
-        self.config = config or DEFAULT_CONFIG.copy()
-        self.detection_stage = DetectionStage(
-            self.config.get("DETECT_SCRIPT")
-        )
-        self.rule_engine_stage = RuleEngineStage(
-            self.config.get("RULE_ENGINE_SCRIPT")
-        )
-        self.validator = ReportValidator()
+        self.config: Dict[str, Any] = {**DEFAULT_DETECTOR_CONFIG, **(config or {})}
 
-    def validate_prerequisites(self) -> bool:
+        # مدل فقط یک بار در سازنده بارگذاری می‌شود تا برای هر ویدیو دوباره لود نشود
+        self.model = YOLO(self.config["model_path"])
+
+    def run(self, video_path: str) -> Dict[str, Any]:
         """
-        Validate all required scripts exist.
+        Run detection + tracking over every frame of a video.
+
+        Args:
+            video_path: Path to a video file, or "0" for the default webcam.
 
         Returns:
-            True if all prerequisites are satisfied
+            A dict with "metadata", "object_durations", "object_movement",
+            and "frames" keys — the same structure previously produced by
+            info_DETECT.py's tracking_complete.json, but returned in memory.
+
+        Raises:
+            FileNotFoundError: If the video file cannot be opened.
         """
-        log.header("🔍 Validating Prerequisites", width=70)
+        cap = cv2.VideoCapture(0 if video_path == "0" else video_path)
+        if not cap.isOpened():
+            raise FileNotFoundError(f"Video could not be opened: {video_path}")
 
-        all_ok = True
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
 
-        # Check scripts
-        if not self.detection_stage.validate():
-            all_ok = False
+        all_frames_data: List[Dict[str, Any]] = []
+        # اولین/آخرین فریمی که هر track_id در آن دیده شده (برای محاسبه مدت‌زمان حضور)
+        object_first_last: Dict[int, Dict[str, Any]] = {}
+        # تاریخچه مسیر حرکت هر شیء (برای محاسبه مسافت/سرعت)
+        object_trajectory: Dict[int, List[tuple]] = {}
 
-        if not self.rule_engine_stage.validate():
-            all_ok = False
+        frame_id = 0
+        log_every = self.config["log_every_n_frames"]
 
-        if not all_ok:
-            log.error("Some required files are missing. Check paths and try again.")
-            return False
+        print(f"🎬 شروع پردازش ویدیو (FPS: {fps})")
 
-        log.success("All prerequisites satisfied")
-        return True
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-    def execute(
+            frame_id += 1
+
+            # تشخیص + ردیابی روی فریم جاری
+            results = self.model.track(
+                frame,
+                conf=self.config["conf_threshold"],
+                iou=self.config["iou_threshold"],
+                persist=True,
+                verbose=False,
+            )
+
+            detections = self._extract_detections(
+                results, frame_id, object_first_last, object_trajectory
+            )
+            self._attach_ppe_flags(detections)
+
+            frame_height, frame_width = frame.shape[:2]
+            self._attach_relative_geometry(detections, frame_width, frame_height)
+
+            all_frames_data.append({
+                "frame_id": frame_id,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "frame_size": {"width": frame_width, "height": frame_height},
+                "total_objects": len(detections),
+                "detections": detections,
+            })
+
+            if frame_id % log_every == 0:
+                print(f"   → پردازش فریم {frame_id}...")
+
+        cap.release()
+        print(f"✅ پردازش ویدیو کامل شد. تعداد کل فریم‌ها: {frame_id}")
+
+        object_durations, object_movement = self._summarize_objects(
+            object_first_last, object_trajectory, fps
+        )
+
+        return {
+            "metadata": {
+                "model": self.config["model_path"],
+                "fps": fps,
+                "total_frames": frame_id,
+                "conf_threshold": self.config["conf_threshold"],
+                "iou_threshold": self.config["iou_threshold"],
+                "iou_ppe_threshold": self.config["iou_ppe_threshold"],
+                "export_time": datetime.datetime.now().isoformat(),
+                "classes": self.config["class_map"],
+            },
+            "object_durations": object_durations,
+            "object_movement": object_movement,
+            "frames": all_frames_data,
+        }
+
+    def _extract_detections(
+            self,
+            results,
+            frame_id: int,
+            object_first_last: Dict[int, Dict[str, Any]],
+            object_trajectory: Dict[int, List[tuple]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Convert raw YOLO tracking results for one frame into the project's
+        detection dict schema, updating per-object duration/trajectory state.
+
+        Args:
+            results: Output of `self.model.track(...)` for a single frame.
+            frame_id: 1-based index of the current frame.
+            object_first_last: Mutable state tracking first/last-seen frame
+                per track_id (updated in place).
+            object_trajectory: Mutable state tracking center-point history
+                per track_id (updated in place).
+
+        Returns:
+            List of detection dicts for this frame.
+        """
+        detections: List[Dict[str, Any]] = []
+
+        boxes = results[0].boxes if results and results[0].boxes is not None else None
+        if boxes is None:
+            return detections
+
+        class_map = self.config["class_map"]
+
+        for box in boxes:
+            # اشیایی که track_id ندارند (هنوز ردیابی نشده‌اند) نادیده گرفته می‌شوند
+            if box.id is None:
+                continue
+
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().tolist()
+            cls = int(box.cls[0])
+            conf = float(box.conf[0])
+            class_name = class_map.get(cls, f"class_{cls}")
+            track_id = int(box.id[0])
+
+            # به‌روزرسانی اولین/آخرین فریم مشاهده این شیء
+            if track_id not in object_first_last:
+                object_first_last[track_id] = {
+                    "first": frame_id, "last": frame_id, "class": class_name
+                }
+            else:
+                object_first_last[track_id]["last"] = frame_id
+
+            center_x = round((x1 + x2) / 2, 2)
+            center_y = round((y1 + y2) / 2, 2)
+            object_trajectory.setdefault(track_id, []).append(
+                (center_x, center_y, frame_id)
+            )
+
+            detections.append({
+                "track_id": track_id,
+                "class_id": cls,
+                "class_name": class_name,
+                "bbox": {
+                    "x1": round(x1, 2), "y1": round(y1, 2),
+                    "x2": round(x2, 2), "y2": round(y2, 2),
+                },
+                "center": {"x": center_x, "y": center_y},
+                "width": round(x2 - x1, 2),
+                "height": round(y2 - y1, 2),
+                "confidence": round(conf, 3),
+            })
+
+        return detections
+
+    def _attach_ppe_flags(self, detections: List[Dict[str, Any]]) -> None:
+        """
+        Attach PPE (hardhat/vest) presence flags to each "Person" detection
+        by matching bounding-box overlap with Hardhat/Safety Vest detections.
+
+        Mutates the detection dicts in place, adding: has_hardhat, has_vest,
+        has_ppe, ppe_list.
+
+        Args:
+            detections: Detections for a single frame.
+        """
+        person_cls = self.config["person_class_name"]
+        hardhat_cls = self.config["hardhat_class_name"]
+        vest_cls = self.config["vest_class_name"]
+        ppe_iou_threshold = self.config["iou_ppe_threshold"]
+
+        persons = [d for d in detections if d["class_name"] == person_cls]
+        hardhats = [d for d in detections if d["class_name"] == hardhat_cls]
+        vests = [d for d in detections if d["class_name"] == vest_cls]
+
+        for person in persons:
+            person["has_hardhat"] = False
+            person["has_vest"] = False
+            person["ppe_list"] = []
+
+            for hardhat in hardhats:
+                if _calculate_iou(person["bbox"], hardhat["bbox"]) > ppe_iou_threshold:
+                    person["has_hardhat"] = True
+                    person["ppe_list"].append(hardhat_cls)
+                    break
+
+            for vest in vests:
+                if _calculate_iou(person["bbox"], vest["bbox"]) > ppe_iou_threshold:
+                    person["has_vest"] = True
+                    person["ppe_list"].append(vest_cls)
+                    break
+
+            person["has_ppe"] = person["has_hardhat"] or person["has_vest"]
+
+    @staticmethod
+    def _attach_relative_geometry(
+            detections: List[Dict[str, Any]], frame_width: int, frame_height: int
+    ) -> None:
+        """
+        Attach frame-relative position/size (0..1 range) to each detection,
+        useful for zone-based rules regardless of video resolution.
+
+        Args:
+            detections: Detections for a single frame (mutated in place).
+            frame_width: Width of the frame in pixels.
+            frame_height: Height of the frame in pixels.
+        """
+        for det in detections:
+            det["relative_position"] = {
+                "x": round(det["center"]["x"] / frame_width, 3),
+                "y": round(det["center"]["y"] / frame_height, 3),
+            }
+            det["relative_size"] = {
+                "width": round(det["width"] / frame_width, 3),
+                "height": round(det["height"] / frame_height, 3),
+            }
+
+    @staticmethod
+    def _summarize_objects(
+            object_first_last: Dict[int, Dict[str, Any]],
+            object_trajectory: Dict[int, List[tuple]],
+            fps: float,
+    ) -> tuple:
+        """
+        Build the object_durations / object_movement summary blocks from
+        the raw per-track state collected during `run()`.
+
+        Args:
+            object_first_last: first/last frame + class name per track_id.
+            object_trajectory: list of (x, y, frame_id) points per track_id.
+            fps: Video frame rate, used to convert frame counts to seconds.
+
+        Returns:
+            Tuple of (object_durations dict, object_movement dict).
+        """
+        object_durations: Dict[str, Any] = {}
+        object_movement: Dict[str, Any] = {}
+
+        for track_id, info in object_first_last.items():
+            first, last = info["first"], info["last"]
+            duration_frames = last - first + 1
+            object_durations[str(track_id)] = {
+                "class": info["class"],
+                "first_frame": first,
+                "last_frame": last,
+                "duration_frames": duration_frames,
+                "duration_seconds": round(duration_frames / fps, 2) if fps else None,
+            }
+
+            trajectory = object_trajectory.get(track_id, [])
+            if len(trajectory) > 1:
+                total_distance = sum(
+                    _euclidean_distance(
+                        (trajectory[i - 1][0], trajectory[i - 1][1]),
+                        (trajectory[i][0], trajectory[i][1]),
+                    )
+                    for i in range(1, len(trajectory))
+                )
+                object_movement[str(track_id)] = {
+                    "total_distance": round(total_distance, 2),
+                    "avg_speed": round(total_distance / len(trajectory), 3),
+                    "trajectory_points": len(trajectory),
+                }
+
+        return object_durations, object_movement
+
+
+# ============================================================
+# مرحله ۲ + ۳: ترکیب تشخیص + Rule Engine در یک Wrapper واحد
+# ============================================================
+
+class SafetyVideoPipeline:
+    """
+    High-level wrapper that ties YOLO detection/tracking and the safety
+    rule engine together behind a single method call.
+
+    This is the object the LLM layer should instantiate once (e.g. at
+    service startup, so the YOLO model is loaded a single time) and then
+    reuse for every uploaded video via `process_video()`.
+
+    Example:
+        >>> pipeline = SafetyVideoPipeline(
+        ...     detector_config={"model_path": "models/best.pt"}
+        ... )
+        >>> result = pipeline.process_video("warehouse.mp4")
+        >>> result["alerts_report"]["total_alerts"]
+    """
+
+    def __init__(
+            self,
+            detector_config: Optional[Dict[str, Any]] = None,
+            rule_engine_config: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Build the detector and rule engine once and keep them warm.
+
+        Args:
+            detector_config: Overrides for DEFAULT_DETECTOR_CONFIG
+                (must include a valid "model_path").
+            rule_engine_config: Overrides for the rule engine's
+                RULE_ENGINE_DEFAULT_CONFIG (distance/time thresholds, etc).
+        """
+        self.detector = YOLODetector(detector_config)
+        self.rule_engine = RuleEngine(rule_engine_config)
+
+    def process_video(
             self,
             video_path: str,
-            model_path: str,
-            output_tracking: Optional[str] = None,
-            output_alerts: Optional[str] = None,
-            conf_threshold: float = 0.3,
-            iou_threshold: float = 0.45
-    ) -> bool:
+            save_tracking_json: Optional[str] = None,
+            save_alerts_json: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Execute complete pipeline.
+        Run the full video -> detection -> rule-engine -> JSON pipeline.
 
-        Pipeline Stages:
-            1. Detection & Tracking: Process video → tracking JSON
-            2. Rule Engine: Analyze tracking data → alerts JSON
+        This is the single function the LLM report-generation layer is
+        expected to call for every incoming video.
 
         Args:
-            video_path: Input video file or device ID (0 for webcam)
-            model_path: Path to YOLO model weights
-            output_tracking: Path to output tracking JSON (default from config)
-            output_alerts: Path to output alerts JSON (default from config)
-            conf_threshold: Detection confidence threshold
-            iou_threshold: NMS IOU threshold
+            video_path: Path to the input video file (or "0" for webcam).
+            save_tracking_json: If given, also persist raw tracking data
+                to this path (useful for debugging/auditing).
+            save_alerts_json: If given, also persist the alerts report to
+                this path.
 
         Returns:
-            True if all stages succeeded, False if any stage failed
+            A JSON-serializable dict with three top-level keys:
+                - "video_info": basic metadata about the processed video
+                - "tracking_summary": per-object duration/movement stats
+                - "alerts_report": full output of RuleEngine.get_report()
+                  (total_alerts, alerts_by_type, severity_distribution,
+                  alerts)
+            This dict is exactly what should be passed to the LLM prompt
+            generator (e.g. HSEPromptGenerator) to produce the HSE report.
         """
-        # Use config defaults if not specified
-        output_tracking = output_tracking or self.config["TRACKING_JSON"]
-        output_alerts = output_alerts or self.config["ALERTS_JSON"]
+        # ری‌ست موتور قوانین تا آلارم‌های ویدیوی قبلی باقی نمانند
+        self.rule_engine.reset()
 
-        log.header("🏭 Warehouse Safety Monitoring Pipeline", width=70)
+        # مرحله ۱: تشخیص + ردیابی
+        tracking_data = self.detector.run(video_path)
 
-        # ===== Stage 1: Detection & Tracking =====
-        if not self.detection_stage.run(
-                video_path=video_path,
-                model_path=model_path,
-                output_json=output_tracking,
-                conf_threshold=conf_threshold,
-                iou_threshold=iou_threshold
-        ):
-            log.error("Pipeline aborted: Detection stage failed")
-            return False
+        if save_tracking_json:
+            self._save_json(tracking_data, save_tracking_json)
 
-        # Validate tracking JSON
-        log.info("Validating detection output...")
-        valid, data = self.validator.validate_tracking_json(output_tracking)
-        if not valid:
-            return False
+        # مرحله ۲: اعمال قوانین ایمنی روی هر فریم
+        self.rule_engine.fps = tracking_data["metadata"]["fps"]
+        for frame in tracking_data["frames"]:
+            self.rule_engine.process_frame(frame)
 
-        # ===== Stage 2: Rule Engine =====
-        if not self.rule_engine_stage.run(
-                input_json=output_tracking,
-                output_json=output_alerts
-        ):
-            log.error("Pipeline aborted: Rule Engine stage failed")
-            return False
+        alerts_report = self.rule_engine.get_report()
 
-        # Validate alerts JSON
-        log.info("Validating rule engine output...")
-        valid, data = self.validator.validate_alerts_json(output_alerts)
-        if not valid:
-            return False
+        if save_alerts_json:
+            self._save_json(alerts_report, save_alerts_json)
 
-        return True
+        # مرحله ۳: ترکیب همه چیز در یک خروجی JSON واحد
+        final_output = {
+            "video_info": {
+                "source": video_path,
+                "fps": tracking_data["metadata"]["fps"],
+                "total_frames": tracking_data["metadata"]["total_frames"],
+                "processed_at": datetime.datetime.now().isoformat(),
+            },
+            "tracking_summary": {
+                "object_durations": tracking_data["object_durations"],
+                "object_movement": tracking_data["object_movement"],
+                "classes": tracking_data["metadata"]["classes"],
+            },
+            "alerts_report": alerts_report,
+        }
+        return final_output
 
-    def load_alerts_report(self, alerts_json_path: str) -> Optional[Dict]:
+    @staticmethod
+    def _save_json(data: Dict[str, Any], path: str) -> None:
         """
-        Load and return alerts report from JSON file.
+        Persist a dict to disk as UTF-8 JSON (Persian text preserved as-is).
 
         Args:
-            alerts_json_path: Path to alerts JSON file
-
-        Returns:
-            Dictionary containing alerts report, or None if loading failed
+            data: JSON-serializable dict.
+            path: Destination file path.
         """
-        try:
-            with open(alerts_json_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            log.error(f"Failed to load alerts report: {e}")
-            return None
-
-    def print_summary(self, alerts_json_path: str) -> None:
-        """
-        Print summary of pipeline results.
-
-        Args:
-            alerts_json_path: Path to alerts JSON file
-        """
-        report = self.load_alerts_report(alerts_json_path)
-
-        if not report:
-            return
-
-        log.header("📊 Pipeline Results Summary", width=70)
-
-        print(f"\n📈 Total Violations Detected: {report.get('total_alerts', 0)}")
-
-        print("\n📋 Violations by Type:")
-        for vtype, count in report.get('alerts_by_type', {}).items():
-            print(f"   • {vtype}: {count}")
-
-        print("\n⚠️ Severity Distribution:")
-        for severity, count in report.get('severity_distribution', {}).items():
-            print(f"   • {severity}: {count}")
-
-        print("\n✅ Pipeline completed successfully!")
-        print(f"📄 Tracking data: tracking_complete.json")
-        print(f"📄 Alerts report: {alerts_json_path}")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"💾 ذخیره شد: {path}")
 
 
 # ============================================================
-# CLI Interface
+# تابع سرراست برای فراخوانی مستقیم توسط لایه LLM
 # ============================================================
 
-def create_argument_parser() -> argparse.ArgumentParser:
+def run_pipeline_for_llm(
+        video_path: str,
+        model_path: str,
+        detector_overrides: Optional[Dict[str, Any]] = None,
+        rule_engine_overrides: Optional[Dict[str, Any]] = None,
+        save_tracking_json: Optional[str] = None,
+        save_alerts_json: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Create command-line argument parser.
+    One-shot convenience function: build a pipeline with sensible defaults,
+    process a single video, and return the final JSON dict.
+
+    Prefer instantiating `SafetyVideoPipeline` directly (and reusing it
+    across multiple videos) in a long-running service, since this function
+    reloads the YOLO model on every call.
+
+    Args:
+        video_path: Path to the input video file.
+        model_path: Path to the YOLO .pt weights file.
+        detector_overrides: Optional extra overrides for the detector config.
+        rule_engine_overrides: Optional extra overrides for the rule engine
+            config (distance/time thresholds).
+        save_tracking_json: Optional path to also persist tracking data.
+        save_alerts_json: Optional path to also persist the alerts report.
 
     Returns:
-        Configured ArgumentParser instance
+        Final JSON dict (video_info / tracking_summary / alerts_report),
+        ready to be handed to the LLM report generator.
+    """
+    detector_config = {"model_path": model_path, **(detector_overrides or {})}
+    pipeline = SafetyVideoPipeline(
+        detector_config=detector_config,
+        rule_engine_config=rule_engine_overrides,
+    )
+    return pipeline.process_video(
+        video_path,
+        save_tracking_json=save_tracking_json,
+        save_alerts_json=save_alerts_json,
+    )
+
+
+# ============================================================
+# اجرای مستقل از خط فرمان (برای تست دستی)
+# ============================================================
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """
+    Build the CLI argument parser for standalone/manual testing.
+
+    Returns:
+        Configured ArgumentParser instance.
     """
     parser = argparse.ArgumentParser(
-        description="Warehouse Safety Monitoring Pipeline Orchestrator",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Process video with default settings
-  python pipeline_orchestrator.py
-
-  # Process with custom video and model
-  python pipeline_orchestrator.py \\
-    --video warehouse.mp4 \\
-    --model models/best.pt \\
-    --output-tracking tracking.json \\
-    --output-alerts alerts.json
-
-  # Use webcam (device 0)
-  python pipeline_orchestrator.py --video 0
-
-  # Custom detection thresholds
-  python pipeline_orchestrator.py \\
-    --video video.mp4 \\
-    --conf 0.4 \\
-    --iou 0.5
-        """
+        description="Run the YOLO + Rule Engine pipeline on a video and print/save the JSON result."
     )
-
-    parser.add_argument(
-        "--video",
-        type=str,
-        default=DEFAULT_CONFIG["VIDEO_PATH"],
-        help="Input video file or device ID (0 for webcam)"
-    )
-
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=DEFAULT_CONFIG["MODEL_PATH"],
-        help="Path to YOLO model weights"
-    )
-
-    parser.add_argument(
-        "--output-tracking",
-        type=str,
-        default=DEFAULT_CONFIG["TRACKING_JSON"],
-        help="Output path for tracking JSON"
-    )
-
-    parser.add_argument(
-        "--output-alerts",
-        type=str,
-        default=DEFAULT_CONFIG["ALERTS_JSON"],
-        help="Output path for alerts JSON"
-    )
-
-    parser.add_argument(
-        "--conf",
-        type=float,
-        default=DEFAULT_CONFIG["CONF_THRESHOLD"],
-        help="Detection confidence threshold (0.0-1.0)"
-    )
-
-    parser.add_argument(
-        "--iou",
-        type=float,
-        default=DEFAULT_CONFIG["IOU_THRESHOLD"],
-        help="NMS IOU threshold (0.0-1.0)"
-    )
-
+    parser.add_argument("--video", required=True, help="مسیر فایل ویدیو یا 0 برای وبکم")
+    parser.add_argument("--model", required=True, help="مسیر وزن مدل یولو (.pt)")
+    parser.add_argument("--output", default=None, help="مسیر ذخیره خروجی نهایی JSON (اختیاری)")
+    parser.add_argument("--save-tracking", default=None, help="مسیر ذخیره tracking خام (اختیاری)")
+    parser.add_argument("--save-alerts", default=None, help="مسیر ذخیره گزارش آلارم‌ها (اختیاری)")
     return parser
 
 
-def main():
-    """
-    Main entry point for CLI.
+def main() -> None:
+    """CLI entry point for manual/local testing of the wrapper."""
+    args = _build_arg_parser().parse_args()
 
-    Parses arguments, initializes pipeline, and executes
-    the complete safety monitoring workflow.
-    """
-    parser = create_argument_parser()
-    args = parser.parse_args()
-
-    # Initialize pipeline
-    pipeline = SafetyMonitoringPipeline()
-
-    # Validate prerequisites
-    if not pipeline.validate_prerequisites():
-        sys.exit(1)
-
-    # Execute pipeline
-    success = pipeline.execute(
+    result = run_pipeline_for_llm(
         video_path=args.video,
         model_path=args.model,
-        output_tracking=args.output_tracking,
-        output_alerts=args.output_alerts,
-        conf_threshold=args.conf,
-        iou_threshold=args.iou
+        save_tracking_json=args.save_tracking,
+        save_alerts_json=args.save_alerts,
     )
 
-    if not success:
-        log.header("❌ Pipeline Failed", width=70)
-        sys.exit(1)
-
-    # Print results
-    pipeline.print_summary(args.output_alerts)
-
-    log.header("✅ Pipeline Completed Successfully", width=70)
-    log.info(f"Tracking data: {args.output_tracking}")
-    log.info(f"Alerts report: {args.output_alerts}")
-    log.info("Ready for downstream processing (LLM, database, etc.)")
+    if args.output:
+        SafetyVideoPipeline._save_json(result, args.output)
+    else:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
