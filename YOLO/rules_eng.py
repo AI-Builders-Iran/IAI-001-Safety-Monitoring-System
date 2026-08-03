@@ -39,24 +39,21 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 # Default Configuration
 # ============================================================
 
+# Distance thresholds (in meters):
+#     - distance_vehicle_person_m: Safe distance from vehicles (default: 3m)
+#     - distance_machinery_person_m: Safe distance from machinery (default: 1m)
+#     - pixels_per_meter: Calibration factor for distance calculation
+#
+# Time-based thresholds (in frames):
+#     - no_ppe_frames: Frames required to trigger PPE violation alert
+#     - no_hardhat_frames: Frames required to trigger hardhat violation alert
+#     - no_vest_frames: Frames required to trigger safety vest violation alert
+#     - idle_frames: Frames to track before classifying as idle
+#     - crowd_threshold: Maximum persons per frame before crowd alert
+#
+# Speed thresholds (in pixels per frame):
+#     - speed_threshold: Maximum allowed speed for normal movement
 DEFAULT_CONFIG = {
-    """
-    Distance thresholds (in meters):
-        - distance_vehicle_person_m: Safe distance from vehicles (default: 3m)
-        - distance_machinery_person_m: Safe distance from machinery (default: 1m)
-        - pixels_per_meter: Calibration factor for distance calculation
-    
-    Time-based thresholds (in frames):
-        - no_ppe_frames: Frames required to trigger PPE violation alert
-        - no_hardhat_frames: Frames required to trigger hardhat violation alert
-        - no_vest_frames: Frames required to trigger safety vest violation alert
-        - idle_frames: Frames to track before classifying as idle
-        - crowd_threshold: Maximum persons per frame before crowd alert
-    
-    Speed thresholds (in pixels per frame):
-        - speed_threshold: Maximum allowed speed for normal movement
-    """
-    
     # Distance thresholds (in meters) - Calibration: 1 meter = 50 pixels
     "distance_vehicle_person_m": 3.0,
     "distance_machinery_person_m": 1.0,
