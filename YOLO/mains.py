@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import logging
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -57,6 +58,9 @@ from ultralytics import YOLO
 
 # موتور قوانین ایمنی (همان فایل rules_eng.py موجود در پروژه)
 from rules_eng import RuleEngine
+
+# استفاده از logging به‌جای print تا خروجی در `docker compose logs` دیده شود
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # پیکربندی پیش‌فرض تشخیص (برگرفته از info_DETECT.py)
@@ -217,7 +221,7 @@ class YOLODetector:
         frame_id = 0
         log_every = self.config["log_every_n_frames"]
 
-        print(f"🎬 شروع پردازش ویدیو (FPS: {fps})")
+        logger.info(f"🎬 شروع پردازش ویدیو (FPS: {fps})")
 
         while True:
             ret, frame = cap.read()
@@ -252,10 +256,10 @@ class YOLODetector:
             })
 
             if frame_id % log_every == 0:
-                print(f"   → پردازش فریم {frame_id}...")
+                logger.info(f"   → پردازش فریم {frame_id}...")
 
         cap.release()
-        print(f"✅ پردازش ویدیو کامل شد. تعداد کل فریم‌ها: {frame_id}")
+        logger.info(f"✅ پردازش ویدیو کامل شد. تعداد کل فریم‌ها: {frame_id}")
 
         object_durations, object_movement = self._summarize_objects(
             object_first_last, object_trajectory, fps
@@ -575,7 +579,7 @@ class SafetyVideoPipeline:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"💾 ذخیره شد: {path}")
+        logger.info(f"💾 ذخیره شد: {path}")
 
 
 # ============================================================

@@ -26,6 +26,7 @@ from __future__ import annotations
 import io
 import sys
 import json
+import logging
 import math
 from collections import defaultdict
 from pathlib import Path
@@ -33,6 +34,11 @@ from typing import Dict, List, Tuple, Any, Optional
 
 # UTF-8 encoding support
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# Progress/diagnostic messages go through logging (not print) so they show
+# up in `docker compose logs` reliably. print_report() below is left as-is,
+# since it is an explicit "print a formatted report" utility, not a log.
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -238,7 +244,7 @@ class RuleEngine:
             json.JSONDecodeError: If file is not valid JSON
             KeyError: If required keys are missing from JSON structure
         """
-        print(f"📂 Loading video data from: {video_data_path}")
+        logger.info(f"📂 Loading video data from: {video_data_path}")
 
         with open(video_data_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -247,14 +253,14 @@ class RuleEngine:
         self.fps = data.get("metadata", {}).get("fps", 30)
         frames = data.get("frames", [])
 
-        print(f"⏱️  FPS: {self.fps}")
-        print(f"📊 Processing {len(frames)} frames...")
+        logger.info(f"⏱️  FPS: {self.fps}")
+        logger.info(f"📊 Processing {len(frames)} frames...")
 
         # Process each frame
         for frame in frames:
             self.process_frame(frame)
 
-        print(f"✅ Processing complete! Generated {len(self.alerts)} alerts.")
+        logger.info(f"✅ Processing complete! Generated {len(self.alerts)} alerts.")
 
     def process_frame(self, frame_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -300,7 +306,7 @@ class RuleEngine:
                             self.alerts.append(alert)
                             frame_alerts.append(alert)
             except Exception as e:
-                print(f"⚠️  Error in rule '{rule_name}': {str(e)}")
+                logger.error(f"⚠️  Error in rule '{rule_name}': {str(e)}", exc_info=True)
                 continue
 
         return frame_alerts
@@ -709,7 +715,7 @@ class RuleEngine:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
 
-        print(f"✅ Report saved to: {output_path}")
+        logger.info(f"✅ Report saved to: {output_path}")
 
     def print_report(self, max_alerts: int = 10) -> None:
         """
@@ -766,4 +772,4 @@ class RuleEngine:
         self.person_positions.clear()
         self.alerted_conditions.clear()
         self.prev_positions.clear()
-        print("🔄 Engine state reset. Ready for new video.")
+        logger.info("🔄 Engine state reset. Ready for new video.")

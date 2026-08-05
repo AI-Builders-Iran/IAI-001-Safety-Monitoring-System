@@ -394,6 +394,48 @@ We collaborate to build an open-source, industrial-grade Computer Vision and AI 
 
 ---
 
+# 🐳 Docker Deployment (FastAPI backend + Gradio UI)
+
+The system ships as two containers, orchestrated with `docker-compose.yml`:
+
+| Service | What it does | Port |
+|---|---|---|
+| `api` | FastAPI backend. Loads the YOLO detector + rule engine (`YOLO/mains.py`, `YOLO/rules_eng.py`) and the local LLM (`LLM/llm_client.py`) once at startup and exposes them over HTTP. | `8000` |
+| `ui` | Gradio front-end. Lets you upload a video, pick a report language/style, or flip a flag to send your own custom prompt instead of the ready-made templates. Talks to `api` over HTTP only. | `7860` |
+
+### Requirements
+
+- Docker + Docker Compose v2
+- An NVIDIA GPU with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed on the host — `LLM/llm_client.py` requires CUDA and will not run on CPU.
+
+### Run it
+
+```bash
+docker compose up -d --build
+```
+
+- API docs (Swagger UI): `http://localhost:8000/docs`
+- Gradio UI: `http://localhost:7860`
+
+### One-time step: download the local LLM weights
+
+The Qwen2.5 weights used by `LLM/llm_client.py` aren't checked into the repo. After the first `docker compose up`, download them once into the persisted `llm_model_cache` volume, then restart the API so it picks them up:
+
+```bash
+docker compose exec api python -c "from LLM.llm_client import download_model; download_model('/app/LLM/model')"
+docker compose restart api
+```
+
+### Custom prompts
+
+In the Gradio UI, checking **"Use my own prompt instead of the ready-made styles"** replaces the built-in Persian/English summary/detailed templates with whatever text you type — it's combined with a short summary of that video's detected alerts before being sent to the LLM, so the model still has context.
+
+### Configuration
+
+Both services read their settings from environment variables set in `docker-compose.yml` (model paths, detection thresholds, upload size limit, request timeout) — adjust them there rather than editing the code.
+
+---
+
 # 🤝 Contributing
 
 Contributions are always welcome.

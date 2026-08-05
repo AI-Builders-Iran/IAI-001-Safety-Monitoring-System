@@ -1,0 +1,60 @@
+# Safety Monitoring System -- two services:
+#   api -> FastAPI backend (YOLO detection/tracking + rule engine + local LLM)
+#   ui  -> Gradio front-end that talks to the api service over HTTP
+#
+# make sure the NVIDIA Container Toolkit is
+# installed and working on the host
+# (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+#
+# One-time setup after `docker compose up -d`: the local LLM weights are not
+# in the repo and must be downloaded once into the llm_model_cache volume:
+#
+#   docker compose exec api python -c \
+#     "from LLM.llm_client import download_model; download_model('/app/LLM/model')"
+#
+# Then restart the api service so it picks up the downloaded weights:
+#
+#   docker compose restart api
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: API/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      YOLO_MODEL_PATH: /app/YOLO/models/best.onnx
+      LLM_MODEL_PATH: /app/LLM/model
+      YOLO_CONF_THRESHOLD: "0.3"
+      YOLO_IOU_THRESHOLD: "0.45"
+      MAX_UPLOAD_MB: "500"
+    volumes:
+      # Persists the downloaded LLM weights across container rebuilds so
+      # they don't have to be re-downloaded every time.
+      - llm_model_cache:/app/LLM/model
+    # real LLM report generation (LLM/llm_client.py requires CUDA):
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: UI/Dockerfile
+    ports:
+      - "7860:7860"
+    environment:
+      API_URL: http://api:8000
+      REQUEST_TIMEOUT_SECONDS: "1800"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  llm_model_cache:
