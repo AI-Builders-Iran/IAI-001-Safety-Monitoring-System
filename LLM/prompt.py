@@ -243,8 +243,8 @@ class AlertsSummarizer:
             }
         }
 
-    def get_text_summary(self, max_objects=5):
-        """ Generate a human-readable text summary of tracking statistics in Persian.
+    def get_text_summary(self, max_objects=5, language='fa'):
+        """ Generate a human-readable text summary of tracking statistics.
 
     This method produces a formatted text report containing overall statistics,
     class-level summaries, and the most frequently detected objects. The output
@@ -255,6 +255,8 @@ class AlertsSummarizer:
         max_objects (int, optional): Maximum number of top tracked objects to
             include in the summary. Defaults to 5. Only the most frequently
             detected tracks (by alert count) are shown.
+        language (str, optional): 'fa' for Persian labels (default) or 'en'
+            for English labels. Any value other than 'fa' is treated as 'en'.
 
     Returns:
         str: A multi-line formatted text summary containing:
@@ -264,7 +266,7 @@ class AlertsSummarizer:
             - Top N most active tracks with their details
 
     Example:
-        Given max_objects=2 and sample data, returns:
+        Given max_objects=2, language='fa' and sample data, returns:
 
         کل alerts: 6
         طبقات: car, pedestrian
@@ -272,9 +274,18 @@ class AlertsSummarizer:
         car: 5 incidents، avg speed 5.5 px/frame
         pedestrian: 1 incidents، avg speed 3.1 px/frame
 
+        The same data with language='en' returns:
+
+        Total alerts: 6
+        Classes: car, pedestrian
+
+        car: 5 incidents, avg speed 5.5 px/frame
+        pedestrian: 1 incidents, avg speed 3.1 px/frame
+
     Note:
-        - All labels and descriptions are in Persian (Farsi) as per system
-          localization requirements
+        - Labels are Persian (Farsi) when language='fa', English otherwise,
+          matching the language selection used elsewhere in this class
+          (see generate_summary_prompt / generate_detailed_prompt)
         - Speed values are formatted to 1 decimal place for readability
         - Only tracks with at least one alert are considered in top_objects
         - The method relies on summary_by_track and summary_by_class being
@@ -288,12 +299,20 @@ class AlertsSummarizer:
             reverse=True
         )[:max_objects]
 
-        summary_text = f"کل alerts: {self.total_alerts}\n"
-        summary_text += "طبقات: " + ", ".join(self.summary_by_class.keys()) + "\n\n"
+        if language == 'fa':
+            summary_text = f"کل alerts: {self.total_alerts}\n"
+            summary_text += "طبقات: " + ", ".join(self.summary_by_class.keys()) + "\n\n"
 
-        for class_name, info in self.summary_by_class.items():
-            summary_text += f"{class_name}: {info['count']} incidents، "
-            summary_text += f"avg speed {mean(info['speeds']):.1f} px/frame\n"
+            for class_name, info in self.summary_by_class.items():
+                summary_text += f"{class_name}: {info['count']} incidents، "
+                summary_text += f"avg speed {mean(info['speeds']):.1f} px/frame\n"
+        else:
+            summary_text = f"Total alerts: {self.total_alerts}\n"
+            summary_text += "Classes: " + ", ".join(self.summary_by_class.keys()) + "\n\n"
+
+            for class_name, info in self.summary_by_class.items():
+                summary_text += f"{class_name}: {info['count']} incidents, "
+                summary_text += f"avg speed {mean(info['speeds']):.1f} px/frame\n"
 
         return summary_text
 
@@ -379,7 +398,7 @@ Please generate a concise HSE report."""
         )[:5]
 
         return template.render(
-            summary_text=self.summarizer.get_text_summary(),
+            summary_text=self.summarizer.get_text_summary(language=language),
             critical_objects=critical_objects
         )
 

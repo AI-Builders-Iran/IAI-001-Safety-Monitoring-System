@@ -5,6 +5,7 @@ local directory, and a wrapper class (`LLMModel`) that loads the model onto a
 CUDA GPU and generates text using a chat template.
 """
 
+import logging
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
@@ -13,6 +14,8 @@ from torch import device
 from torch.cuda import is_available
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 def download_model(
@@ -86,14 +89,14 @@ class LLMModel:
         self.model_name = model_path
         self.device = device("cuda" if is_available() else "cpu")
         try:
-            print(f"Loading model from {model_path}...")
+            logger.info(f"Loading model from {model_path}...")
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 torch_dtype=bfloat16
             ).to(self.device)
             self.model.eval()
-            print("✓ Model loaded successfully!")
+            logger.info("✓ Model loaded successfully!")
         except Exception as e:
             raise ValueError(f"Failed to load model from {model_path}: {str(e)}")
 

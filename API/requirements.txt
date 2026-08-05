@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+
+# Detection / tracking (YOLO/mains.py, YOLO/rules_eng.py)
+ultralytics
+opencv-python-headless
+
+# LLM (LLM/llm_client.py, LLM/prompt.py) -- requires an NVIDIA GPU at runtime
+torch
+transformers
+huggingface_hub
+jinja2
