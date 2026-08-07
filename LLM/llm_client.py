@@ -8,12 +8,13 @@ CUDA GPU and generates text using a chat template.
 import logging
 from pathlib import Path
 
+import torch
 from huggingface_hub import snapshot_download
 from torch import bfloat16, no_grad
 from torch import device
 from torch.cuda import is_available
 from transformers import AutoModelForCausalLM
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, BitsAndBytesConfig
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,19 @@ class LLMModel:
             )
         self.model_name = model_path
         self.device = device("cuda" if is_available() else "cpu")
+        self.quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
         try:
             logger.info(f"Loading model from {model_path}...")
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
-                torch_dtype=bfloat16
+                quantization_config=self.quantization_config,
+                dtype=bfloat16
             ).to(self.device)
             self.model.eval()
             logger.info("✓ Model loaded successfully!")

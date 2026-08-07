@@ -11,6 +11,33 @@ from statistics import mean
 from jinja2 import Template
 
 
+SAFETY_RULES = {
+    "Person No Hardhat": {
+        "meaning": "فرد بدون کلاه ایمنی",
+        "risk": "خطر آسیب سر در اثر سقوط اجسام",
+        "action": "الزام استفاده از کلاه ایمنی"
+    },
+
+    "Person No Vest": {
+        "meaning": "فرد بدون جلیقه ایمنی",
+        "risk": "کاهش دیده شدن فرد توسط ماشین‌آلات",
+        "action": "استفاده از جلیقه شبرنگ"
+    },
+
+    "Person No PPE": {
+        "meaning": "عدم استفاده از تجهیزات حفاظت فردی",
+        "risk": "افزایش احتمال آسیب کاری",
+        "action": "بررسی و الزام PPE"
+    },
+
+    "NO-Mask": {
+        "meaning": "عدم استفاده از ماسک",
+        "risk": "تماس با گرد و غبار یا مواد خطرناک",
+        "action": "استفاده از ماسک استاندارد"
+    }
+}
+
+
 class AlertsSummarizer:
     """
     Summarize object detection alerts for Large Language Model (LLM) prompts.
@@ -493,12 +520,45 @@ Please generate a comprehensive HSE report with safety recommendations."""
         )
 
     def generate_json_prompt(self):
-        """To send to the model as JSON"""
-        if not self.summarizer:
-            return json.dumps({"error": "No alerts data provided"})
 
         return json.dumps({
-            "alert_summary": self.summarizer.get_json_summary(),
-            "instruction": "Analyze these alerts and generate an HSE safety report in Persian.",
-            "format_request": "Provide structured report with: خلاصه, ریسک‌های شناسایی‌شده, توصیه‌های ایمنی"
+
+            "role":
+                "شما یک متخصص HSE در محیط صنعتی هستید.",
+
+            "alerts":
+                self.summarizer.get_json_summary(),
+
+            "rules":
+                SAFETY_RULES,
+
+            "task":
+                """
+                گزارش ایمنی تولید کن.
+    
+                موارد:
+                1- خلاصه وضعیت
+                2- تخلفات مهم
+                3- سطح ریسک
+                4- دلیل خطر
+                5- اقدام اصلاحی
+    
+                فقط بر اساس داده‌ها پاسخ بده.
+                علت‌های نامشخص را حدس نزن.
+                """,
+
+            "output_format":
+                {
+                    "summary": "",
+                    "risk_level": "",
+                    "violations": [
+                        {
+                            "name": "",
+                            "severity": "",
+                            "reason": "",
+                            "action": ""
+                        }
+                    ]
+                }
+
         }, indent=2, ensure_ascii=False)
