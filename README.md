@@ -18,6 +18,12 @@ Detect real-time safety violations on construction sites, factories, and warehou
 
 </div>
 
+## 🎥 Demo
+
+<p align="center">
+  <img src=".gif" width="900" alt="Project Demo">
+</p>
+
 ---
 
 # 📑 Table of Contents
