@@ -21,7 +21,7 @@ Detect real-time safety violations on construction sites, factories, and warehou
 ## 🎥 Demo
 
 <p align="center">
-  <img src=".gif" width="900" alt="Project Demo">
+  <img src="Docs/InShot_20260807_115525097.gif" width="900" alt="Project Demo">
 </p>
 
 ---
