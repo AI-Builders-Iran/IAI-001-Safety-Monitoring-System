@@ -254,9 +254,6 @@ Since safety violation detection is a multi-class, safety-critical problem, mult
 - Precision
 - Recall
 - F1-Score
-- Per-class Average Precision
-- Inference Speed (FPS / latency)
-- Confusion Matrix
 
 ---
 
@@ -389,18 +386,18 @@ In the UI, checking **"Use my own prompt instead of the ready-made styles"** rep
 ### Example Daily HSE Report (LLM Output)
 
 ```
-📋 گزارش روزانه — ۲۴ تیر ۱۴۰۳
+📋 Daily Report — July 14, 2026
 
-امروز ۲۴ هشدار در کارگاه ثبت شده که از این تعداد:
-  • ۱۵ مورد: کارگر بدون کلاه ایمنی
-  • ۵ مورد: نزدیکی بیش از حد لیفتراک به کارگران
-  • ۳ مورد: کارگر بدون جلیقه‌ی ایمنی
-  • ۱ مورد: ورود به منطقه‌ی خطرناک
+Today, 24 warnings were registered in the workshop, of which:
+• 15 cases: Worker without a helmet
+• 5 cases: Forklift too close to workers
+• 3 cases: Worker without a safety vest
+• 1 case: Entering a dangerous area
 
-پیشنهادات:
-  ۱. آموزش مجدد کارگران در مورد استفاده از کلاه ایمنی
-  ۲. نصب هشدار صوتی در نزدیکی لیفتراک‌ها
-  ۳. بازبینی تجهیزات ایمنی شیفت شب
+Suggestions:
+1. Re-train workers on the use of helmets
+2. Install sound alarms near forklifts
+3. Review night shift safety equipment
 ```
 
 ---
