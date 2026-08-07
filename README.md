@@ -9,9 +9,7 @@ Detect real-time safety violations on construction sites, factories, and warehou
 ![Python](https://img.shields.io/badge/Python-3.10-blue?logo=python)
 ![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-purple?logo=yolo&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?logo=postgresql&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white)
-![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
 ![HuggingFace](https://img.shields.io/badge/🤗%20Transformers-LLM-yellow)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 ![Git](https://img.shields.io/badge/Git-F05032?logo=git&logoColor=white)
@@ -35,6 +33,7 @@ Detect real-time safety violations on construction sites, factories, and warehou
 - [📈 Evaluation Metrics](#-evaluation-metrics)
 - [🚀 Installation](#-installation)
 - [▶ Running the System](#-running-the-system)
+- [🎥 Demo Video](#-demo-video)
 - [📊 Example Alert & Report](#-example-alert--report)
 - [👥 Team](#-team)
 - [🤝 Contributing](#-contributing)
@@ -76,51 +75,45 @@ The project is designed as a complete, production-oriented application including
 # 🏗 Project Structure
 
 ```text
-safety-monitoring-system/
-
+IAI-001-Safety-Monitoring-System/
 │
-├── cv/
-│   ├── info_detect.py
-│   ├── train.py
-│   └── models/
-│       ├── best.pt
+├── API/                        # FastAPI backend (single integration point)
+│   ├── app.py                  #   GET /health, POST /analyze
+│   ├── Dockerfile
+│   └── requirements.txt
 │
-├── rules_engine.py
-│
-├── pipeline_orchestrator.py
-│
-├── LLM/
-│   ├── models.py
-│   ├── llm_client.py
-│   ├── prompt.py
-│   ├── main.py
-│
-├── backend/
+├── UI/                         # Gradio front-end (talks to API over HTTP only)
 │   ├── app.py
+│   ├── Dockerfile
+│   └── requirements.txt
 │
-├── dashboard/
+├── YOLO/                       # Detection + tracking + rule engine
+│   ├── mains.py                #   SafetyVideoPipeline, standalone CLI entry point
+│   ├── rules_eng.py            #   RuleEngine (8 safety rules)
+│   ├── Train.py                #   YOLOv8 training script
+│   ├── alert_test/
+│   └── models/
+│       └── best.onnx           #   production detector weights
 │
-├── data/
-│   ├── data.yaml
+├── LLM/                        # Local LLM (Qwen2.5) report generation
+│   ├── llm_client.py           #   LLMModel (Hugging Face, CUDA-only inference)
+│   ├── prompt.py                #   HSEPromptGenerator / AlertsSummarizer
+│   ├── models.py                #   Pydantic schemas for report I/O
+│   ├── llm_main.py              #   standalone LLM CLI entry point (WIP)
+│   └── tests/
 │
-├── reports/
-│   ├── figures/
+├── Docs/                       # Team technical reports & docs
+│   ├── Dashboard + API/
+│   ├── LLM/
+│   ├── YOLO/
+│   └── final_report/
 │
-├── Team_Report/
-│
-├── docs/
-│
-├── .dockerignore
-│
-├── .gitignore
-│
-├── Dockerfile
-│
-├── SYSTEM_PROMPT.md
-│
-├── README.md
-│
-└── requirements.txt
+├── docker-compose.yml           # orchestrates the `api` + `ui` containers
+├── pyproject.toml / uv.lock     # dependency management (uv)
+├── requirements.txt             # generated from pyproject.toml (uv pip compile)
+├── TEAM.md
+├── LICENSE
+└── README.md
 ```
 
 ---
@@ -165,7 +158,6 @@ The dataset ships pre-labeled and pre-split, allowing the team to move directly 
 ## Backend
 
 - FastAPI
-- PostgreSQL
 
 ## LLM / Reporting
 
@@ -173,14 +165,14 @@ The dataset ships pre-labeled and pre-split, allowing the team to move directly 
 - Qwen2.5-Instruct (local inference)
 - Jinja2
 
-## Dashboard
+## Front-end
 
-- React / Streamlit
-- Recharts / Plotly
+- Gradio (video upload, language/style picker, custom-prompt mode)
 
 ## Deployment
 
-- Docker
+- Docker + Docker Compose
+- uv (Python dependency management)
 
 ## Version Control
 
@@ -207,7 +199,6 @@ PPE ↔ Person Association
 Rule Engine (8 Safety Rules)
      │
      ▼
-Alert Storage (PostgreSQL)
      │
      ├──────────────► Dashboard (real-time)
      │
@@ -244,14 +235,11 @@ The current production model is a fine-tuned **YOLOv8** trained on the Construct
 | Metric | Score |
 |:--------|------:|
 | Model | YOLOv8 (fine-tuned) |
-| Confidence Threshold | 0.30 |
-| IoU Threshold (NMS) | 0.45 |
-| mAP50 | *pending evaluation* |
-| mAP50-95 | *pending evaluation* |
-| Precision | *pending evaluation* |
-| Recall | *pending evaluation* |
-| F1-Score | *pending evaluation* |
-| Inference Speed (FPS) | *pending evaluation* |
+| mAP50 |  0.8169 |
+| mAP50-95 | 0.5517 |
+| Precision | 0.8371 |
+| Recall | 0.8056 |
+| F1-Score | 0.8210 |
 
 > **Note:** As with any real-world detection task, model selection prioritizes **Precision, Recall, F1-Score, and mAP** per class over raw accuracy, since safety-critical classes (e.g. `NO-Hardhat`, `machinery`) matter far more than overall correctness.
 
@@ -277,62 +265,110 @@ Since safety violation detection is a multi-class, safety-critical problem, mult
 Clone repository
 
 ```bash
-git clone https://github.com/AI-Builders-Iran/safety-monitoring-system.git
+git clone https://github.com/AI-Builders-Iran/IAI-001-Safety-Monitoring-System.git
 ```
 
 Enter project
 
 ```bash
-cd safety-monitoring-system
+cd IAI-001-Safety-Monitoring-System
 ```
 
-Install dependencies
+Install dependencies (either works — `requirements.txt` is generated from `pyproject.toml` via `uv`):
 
 ```bash
+# with uv (recommended, matches uv.lock)
+uv sync
+
+# or plain pip
 pip install -r requirements.txt
 ```
 
-(Optional) Download the local LLM used for report generation
-
-```bash
-python -c "from LLM.llm_client import download_model; download_model()"
-```
+> Report generation via `LLM/llm_client.py` requires an **NVIDIA GPU with CUDA** — it will raise at load time on CPU-only machines. Everything else (detection, tracking, rule engine, API without `/analyze`'s LLM step) runs fine on CPU.
 
 ---
 
 # ▶ Running the System
 
-### Run detection + tracking on a video
+There are three ways to run the project, from easiest to most manual.
+
+## Option 1 — Docker Compose (recommended)
+
+The system ships as two containers, orchestrated with `docker-compose.yml`:
+
+| Service | What it does | Port |
+|---|---|---|
+| `api` | FastAPI backend. Loads the YOLO detector + rule engine (`YOLO/mains.py`, `YOLO/rules_eng.py`) and the local LLM (`LLM/llm_client.py`) once at startup and exposes them over HTTP. | `8000` |
+| `ui` | Gradio front-end. Lets you upload a video, pick a report language/style, or flip a flag to send your own custom prompt instead of the ready-made templates. Talks to `api` over HTTP only. | `7860` |
+
+**Requirements:** Docker + Docker Compose v2, and an NVIDIA GPU with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed on the host.
 
 ```bash
-python cv/info_detect.py --video path/to/video.mp4 --model cv/models/best.pt --output tracking_complete.json
+docker compose up -d --build
 ```
 
-### Run the full pipeline (detection → rule engine)
+- Swagger UI (API docs): `http://localhost:8000/docs`
+- Gradio UI: `http://localhost:7860`
+
+**One-time step** — the Qwen2.5 weights aren't checked into the repo, so download them once into the persisted `llm_model_cache` volume, then restart the API:
 
 ```bash
-python pipeline_orchestrator.py --video path/to/video.mp4 --model cv/models/best.pt
+docker compose exec api python -c "from LLM.llm_client import download_model; download_model('/app/LLM/model')"
+docker compose restart api
 ```
 
-### Run the Backend API
+Both services read their settings from environment variables set in `docker-compose.yml` (model paths, detection thresholds, upload size limit, request timeout) — adjust them there rather than editing the code.
+
+## Option 2 — Run the API and UI locally (no Docker)
 
 ```bash
-uvicorn backend.app:app --reload
+# Terminal 1 — API (FastAPI + YOLO + rule engine + LLM)
+uvicorn API.app:app --reload --port 8000
+
+# Terminal 2 — UI (Gradio)
+python UI/app.py
 ```
 
-Once the server is running, open:
+By default the UI expects the API at `http://localhost:8000` (override with the `API_URL` env var). Key env vars for the API: `YOLO_MODEL_PATH` (default `YOLO/models/best.onnx`), `LLM_MODEL_PATH` (default `LLM/model`), `YOLO_CONF_THRESHOLD`, `YOLO_IOU_THRESHOLD`, `MAX_UPLOAD_MB`.
 
-### Swagger UI
+Once running:
 
-```
-http://127.0.0.1:8000/docs
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+- Gradio UI: `http://127.0.0.1:7860`
+
+## Option 3 — Run just the YOLO + rule-engine pipeline (CLI, no API/LLM)
+
+Useful for quickly testing detection + tracking + rules on a video without spinning up the API or downloading the LLM.
+
+```bash
+python YOLO/mains.py --video path/to/video.mp4 --model YOLO/models/best.onnx \
+  --output result.json \
+  --save-tracking tracking_raw.json \
+  --save-alerts alerts_report.json
 ```
 
-### ReDoc
+### Custom prompts (Gradio UI)
 
-```
-http://127.0.0.1:8000/redoc
-```
+In the UI, checking **"Use my own prompt instead of the ready-made styles"** replaces the built-in Persian/English summary/detailed/JSON templates with whatever text you type — it's combined with a compact summary of that video's detected alerts before being sent to the LLM, so the model still has context.
+
+---
+
+# 🎥 Demo Video
+
+<!--
+  ⬇️ Add the project's test/demo video here.
+  Easiest options:
+    1. Upload the video as a GitHub "release asset" or directly via the
+       README editor (drag & drop) — GitHub will host it and give you an
+       embeddable link, then replace the line below with:
+       https://github.com/AI-Builders-Iran/IAI-001-Safety-Monitoring-System/assets/<id>/<filename>.mp4
+    2. Or link an external host (YouTube, Google Drive, etc.) and drop a
+       thumbnail + link instead, e.g.:
+       [![Watch the demo](thumbnail.png)](https://youtu.be/VIDEO_ID)
+-->
+
+*Demo video coming soon — will show the full pipeline end-to-end (video upload → YOLO detection/tracking → rule engine alerts → LLM-generated HSE report) via the Gradio UI.*
 
 ---
 
@@ -391,48 +427,6 @@ This project is developed by the **AI Builders Iran** team.
 | ArianaTheClown | [@ArianaTheClown](https://t.me/ArianaTheClown) | Core Member — Dashboard & Backend |
 
 We collaborate to build an open-source, industrial-grade Computer Vision and AI safety system while learning and growing together.
-
----
-
-# 🐳 Docker Deployment (FastAPI backend + Gradio UI)
-
-The system ships as two containers, orchestrated with `docker-compose.yml`:
-
-| Service | What it does | Port |
-|---|---|---|
-| `api` | FastAPI backend. Loads the YOLO detector + rule engine (`YOLO/mains.py`, `YOLO/rules_eng.py`) and the local LLM (`LLM/llm_client.py`) once at startup and exposes them over HTTP. | `8000` |
-| `ui` | Gradio front-end. Lets you upload a video, pick a report language/style, or flip a flag to send your own custom prompt instead of the ready-made templates. Talks to `api` over HTTP only. | `7860` |
-
-### Requirements
-
-- Docker + Docker Compose v2
-- An NVIDIA GPU with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed on the host — `LLM/llm_client.py` requires CUDA and will not run on CPU.
-
-### Run it
-
-```bash
-docker compose up -d --build
-```
-
-- API docs (Swagger UI): `http://localhost:8000/docs`
-- Gradio UI: `http://localhost:7860`
-
-### One-time step: download the local LLM weights
-
-The Qwen2.5 weights used by `LLM/llm_client.py` aren't checked into the repo. After the first `docker compose up`, download them once into the persisted `llm_model_cache` volume, then restart the API so it picks them up:
-
-```bash
-docker compose exec api python -c "from LLM.llm_client import download_model; download_model('/app/LLM/model')"
-docker compose restart api
-```
-
-### Custom prompts
-
-In the Gradio UI, checking **"Use my own prompt instead of the ready-made styles"** replaces the built-in Persian/English summary/detailed templates with whatever text you type — it's combined with a short summary of that video's detected alerts before being sent to the LLM, so the model still has context.
-
-### Configuration
-
-Both services read their settings from environment variables set in `docker-compose.yml` (model paths, detection thresholds, upload size limit, request timeout) — adjust them there rather than editing the code.
 
 ---
 
